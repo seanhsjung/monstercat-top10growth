@@ -1,18 +1,15 @@
 # render.yaml (at repo root)
 
-# 1) Database
 databases:
   - name: mc-top10growth
 
-# 2) Background Worker (ETL)
 services:
   - type: worker
     name: etl
     env: python
     startCommand: python etl.py
-    schedule: "0 * * * *"   # every hour on the hour
+    schedule: "0 * * * *"        # every hour on the hour
 
-# 3) Web Service (FastAPI)
   - type: web
     name: api-top10growth
     env: python
