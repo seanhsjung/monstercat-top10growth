@@ -1,70 +1,128 @@
+#!/usr/bin/env python3
 import os
 import time
-import psycopg2
+import math
 import requests
+import psycopg2
+from psycopg2.extras import execute_values
 from spotify_helper import get_token
 
-# 1. Read your DATABASE_URL
-db_url = os.getenv("DATABASE_URL")
-if not db_url:
-    raise RuntimeError("Set DATABASE_URL env var before running")
+# ── Configuration ────────────────────────────────────────────────────────────────
 
-# 2. Connect to Postgres
-conn = psycopg2.connect(db_url)
-cur  = conn.cursor()
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("⚠️  Set the DATABASE_URL env var before running ETL")
 
-# 3. Fetch all (artist_id, spotify_id) pairs
-cur.execute("SELECT id, spotify_id FROM artists WHERE spotify_id IS NOT NULL")
-rows = cur.fetchall()  # List of tuples: [(artist_id, spid), ...]
+RATE_LIMIT_QPS = float(os.getenv("RATE_LIMIT_QPS", "1"))
+BATCH_SIZE = 50
+SPOTIFY_TOKEN = None
 
-# 4. Chunk into batches of 50
-batch_size = 50
-chunks = [rows[i : i + batch_size] for i in range(0, len(rows), batch_size)]
-print(f"Will process {len(rows)} artists in {len(chunks)} batches of up to {batch_size}")
+# ── Helpers ─────────────────────────────────────────────────────────────────────
 
-# 5. Loop over each batch
-for idx, chunk in enumerate(chunks, start=1):
-    # Build the comma-separated Spotify IDs
-    spids = [spid for (_, spid) in chunk]
-    ids_param = ",".join(spids)
-
-    # Fetch in one request
-    token = get_token()
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(
-        "https://api.spotify.com/v1/artists",
-        params={"ids": ids_param},
-        headers=headers
-    )
-    resp.raise_for_status()
-    artists_data = resp.json()["artists"]  # list of up to 50 artist objects
-
-    # Upsert metrics for each artist in this batch
-    for artist_obj, (artist_id, _) in zip(artists_data, chunk):
-        followers  = artist_obj["followers"]["total"]
-        popularity = artist_obj["popularity"]
-
-        cur.execute(
-            """
-            INSERT INTO metrics(artist_id, source, metric, val)
-            VALUES (%s, 'spotify', 'followers', %s)
-            ON CONFLICT (artist_id, source, metric, ts) DO NOTHING
-            """,
-            (artist_id, followers)
-        )
-        cur.execute(
-            """
-            INSERT INTO metrics(artist_id, source, metric, val)
-            VALUES (%s, 'spotify', 'popularity', %s)
-            ON CONFLICT (artist_id, source, metric, ts) DO NOTHING
-            """,
-            (artist_id, popularity)
-        )
-
+def ensure_schema(conn):
+    """
+    Create artists & metrics tables if they don't exist.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS artists(
+          id           TEXT PRIMARY KEY,
+          name         TEXT,
+          uri          TEXT,
+          spotify_id   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS metrics(
+          artist_id TEXT,
+          source    TEXT,
+          metric    TEXT,
+          ts        TIMESTAMPTZ DEFAULT now(),
+          val       NUMERIC,
+          PRIMARY KEY (artist_id, source, metric, ts)
+        );
+        """)
     conn.commit()
-    print(f"✔️  Batch {idx}/{len(chunks)}: processed {len(chunk)} artists")
-    time.sleep(1)   # one batch/sec → ~20 s total for 1,019 artists
 
-cur.close()
-conn.close()
-print("ETL run complete.")
+def upsert_metrics(conn, rows):
+    """
+    Bulk upsert a list of (artist_id, source, metric, val) into metrics.
+    """
+    with conn.cursor() as cur:
+        execute_values(cur,
+            """
+            INSERT INTO metrics (artist_id, source, metric, val)
+            VALUES %s
+            ON CONFLICT (artist_id, source, metric, ts) DO NOTHING
+            """,
+            rows
+        )
+    conn.commit()
+
+def fetch_artists(conn):
+    """
+    Return list of (id, spotify_id) for all artists mapped to Spotify.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id, spotify_id
+              FROM artists
+             WHERE spotify_id IS NOT NULL
+        """)
+        return cur.fetchall()
+
+def fetch_spotify_batch(token, spotify_ids):
+    """
+    Call Spotify's batch-artist endpoint for up to 50 IDs.
+    Returns list of artist dicts.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    url = "https://api.spotify.com/v1/artists"
+    params = {"ids": ",".join(spotify_ids)}
+    resp = requests.get(url, headers=headers, params=params)
+    resp.raise_for_status()
+    return resp.json().get("artists", [])
+
+# ── Main ETL ────────────────────────────────────────────────────────────────────
+
+def main():
+    global SPOTIFY_TOKEN
+
+    # 1) Connect to Postgres and ensure tables exist
+    conn = psycopg2.connect(DATABASE_URL)
+    ensure_schema(conn)
+
+    # 2) Fetch all artists with a Spotify ID
+    artist_rows = fetch_artists(conn)
+    total = len(artist_rows)
+    print(f"Will process {total} artists in {math.ceil(total/BATCH_SIZE)} batches of up to {BATCH_SIZE}")
+
+    # 3) Get a fresh Spotify token
+    SPOTIFY_TOKEN = get_token()
+
+    # 4) Process in batches
+    for i in range(0, total, BATCH_SIZE):
+        batch = artist_rows[i : i + BATCH_SIZE]
+        spotify_ids = [sid for _, sid in batch]
+
+        artists_data = fetch_spotify_batch(SPOTIFY_TOKEN, spotify_ids)
+
+        # Collect metrics rows: (artist_id, source, metric, val)
+        metrics_to_insert = []
+        for artist in artists_data:
+            aid = artist["id"]
+            followers = artist["followers"]["total"]
+            popularity = artist["popularity"]
+            metrics_to_insert.append((aid, "spotify", "followers", followers))
+            metrics_to_insert.append((aid, "spotify", "popularity", popularity))
+
+        # Upsert into Postgres
+        upsert_metrics(conn, metrics_to_insert)
+        print(f"✔️  Inserted metrics for {len(batch)} artists (batch {i//BATCH_SIZE + 1})")
+
+        # Rate‐limit to ~1 request/sec
+        time.sleep(1 / RATE_LIMIT_QPS)
+
+    conn.close()
+    print("🎉 ETL complete!")
+
+if __name__ == "__main__":
+    main()
