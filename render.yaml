@@ -1,6 +1,10 @@
+# render.yaml (at repo root)
+
+# 1) Database
 databases:
   - name: mc-top10growth
 
+# 2) Background Worker (ETL)
 services:
   - type: worker
     name: etl
@@ -8,15 +12,17 @@ services:
     startCommand: python etl.py
     schedule: "0 * * * *"   # every hour on the hour
 
-  # web: FastAPI service
+# 3) Web Service (FastAPI)
   - type: web
     name: api-top10growth
     env: python
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
 
+# 4) Static Site (React UI)
 staticSites:
-  # React UI
   - name: ui-top10growth
     env: node
-    buildCommand: npm install && npm run build
-    publishDir: dist
+    # since your UI lives in the 'ui/' subfolder:
+    buildCommand: cd ui && npm install && npm run build
+    publishDir: ui/build
