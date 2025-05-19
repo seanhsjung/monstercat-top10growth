@@ -1,18 +1,10 @@
-# monstercat-live-pulse
-cat > README.md << 'EOF'
-# Monstercat Live Artist Pulse
+# monstercat-top10growth
 
-A non-commercial demo using only Monstercat’s open GET API endpoints,
-augmented with Spotify stats, deployed via Render.
+A non-commercial A&R-style leaderboard demo showcasing Monstercat artists’ fastest follower growth, powered by Monstercat’s public API and Spotify metrics, deployed on Render.
 
 ## 🚀 Quickstart
-1. Clone & `cd monstercat-live-pulse`  
-2. Provision with `render.yaml`  
-3. Set env vars: `SPOTIFY_TOKEN`, `RATE_LIMIT_QPS=1`  
-4. Deploy & run seed scripts; UI auto-updates thereafter.
 
-## ⚠️ Disclaimer
-- Only public GET endpoints (no audio)  
-- Rate limit: 1 req/s  
-- Data courtesy of Monstercat’s public API; not affiliated  
-EOF
+1. **Clone & enter**  
+   ```bash
+   git clone https://github.com/seanhsjung/monstercat-top10growth.git
+   cd monstercat-top10growth
