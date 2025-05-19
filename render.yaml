@@ -18,11 +18,3 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
-
-# 4) Static Site (React UI)
-staticSites:
-  - name: ui-top10growth
-    env: node
-    # since your UI lives in the 'ui/' subfolder:
-    buildCommand: cd ui && npm install && npm run build
-    publishDir: ui/build
