@@ -2,12 +2,11 @@ databases:
   - name: mc-top10growth
 
 services:
-  # worker: ETL running every minute
   - type: worker
-    name: etl-top10growth
+    name: etl
     env: python
     startCommand: python etl.py
-    schedule: "* * * * *"
+    schedule: "0 * * * *"   # every hour on the hour
 
   # web: FastAPI service
   - type: web
