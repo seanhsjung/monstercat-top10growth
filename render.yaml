@@ -1,0 +1,23 @@
+databases:
+  - name: mc-pulse
+
+services:
+  # worker: ETL running every minute
+  - type: worker
+    name: etl
+    env: python
+    startCommand: python etl.py
+    schedule: "* * * * *"
+
+  # web: FastAPI service
+  - type: web
+    name: api
+    env: python
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+
+staticSites:
+  # React UI
+  - name: ui
+    env: node
+    buildCommand: npm install && npm run build
+    publishDir: dist
