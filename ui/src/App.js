@@ -1,11 +1,15 @@
-import React from "react";
-import Leaderboard from "./Leaderboard";
+// ui/src/App.js
+import React from "react"
+import Leaderboard from "./Leaderboard"
+import "./App.css"  // if you have any global styles
 
-export default function App() {
+function App() {
   return (
-    <div style={{ padding: 20, fontFamily: "sans-serif" }}>
+    <main style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
       <h1>Monstercat A&R Demo: Top 10 Growth</h1>
-      <Leaderboard period="7 days" limit={10} />
-    </div>
-  );
+      <Leaderboard periodDays={7} limit={10} />
+    </main>
+  )
 }
+
+export default App
