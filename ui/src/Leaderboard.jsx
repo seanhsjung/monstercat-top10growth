@@ -1,35 +1,47 @@
 // ui/src/Leaderboard.jsx
-import React, { useEffect, useState } from "react";
-import axios from "axios";
+import React, { useEffect, useState } from "react"
+import axios from "axios"
 
-export default function Leaderboard({ period = "7 days", limit = 10 }) {
-  const [leaders, setLeaders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+export default function Leaderboard({ periodDays = 7, limit = 10 }) {
+  const [leaders, setLeaders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    const API = process.env.REACT_APP_API_URL || ""
+    const qs = new URLSearchParams({
+      period_days: periodDays.toString(),
+      limit: limit.toString(),
+    }).toString()
+    const url = `${API}/artists/top-growth?${qs}`
+
+    setLoading(true)
+    setError(null)
 
     axios
-      .get(`/artists/top-growth?period=${encodeURIComponent(period)}&limit=${limit}`)
-      .then((res) => {
-        setLeaders(res.data);
-        setLoading(false);
+      .get(url)
+      .then(res => {
+        setLeaders(res.data)
+        setLoading(false)
       })
-      .catch((err) => {
-        console.error("Leaderboard load error:", err);
-        setError(err);
-        setLoading(false);
-      });
-  }, [period, limit]);
+      .catch(err => {
+        console.error("Leaderboard load error:", err)
+        setError(err)
+        setLoading(false)
+      })
+  }, [periodDays, limit])
 
-  if (loading) return <p>Loading leaderboard…</p>;
-  if (error)  return <p style={{ color: "red" }}>Error loading leaderboard.</p>;
+  if (loading) return <p>Loading leaderboard…</p>
+  if (error)
+    return (
+      <p style={{ color: "red" }}>
+        Error loading leaderboard.
+      </p>
+    )
 
   return (
     <div style={{ maxWidth: 600, margin: "40px auto", fontFamily: "sans-serif" }}>
-      <h2>Top {limit} Growth (last {period})</h2>
+      <h2>Top {limit} Growth (last {periodDays} days)</h2>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ borderBottom: "2px solid #ddd" }}>
@@ -54,5 +66,5 @@ export default function Leaderboard({ period = "7 days", limit = 10 }) {
         </tbody>
       </table>
     </div>
-  );
+  )
 }
