@@ -2,13 +2,30 @@ import os
 import asyncio
 import asyncpg
 from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# ─── CORS setup ────────────────────────────────────────────────────────────────
+origins = [
+    "https://ui-top10growth.onrender.com",  # your deployed UI
+    "http://localhost:3000",                # for local React dev
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ─── Database URL ───────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Set the DATABASE_URL env var before running")
 
-# Helper: fetch last 24h of metrics for an artist
+# ─── Helper: fetch last 24h of metrics for an artist ────────────────────────────
 async def fetch_latest(aid: str):
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch(
@@ -24,6 +41,7 @@ async def fetch_latest(aid: str):
     await conn.close()
     return [dict(r) for r in rows]
 
+# ─── List all artists ──────────────────────────────────────────────────────────
 @app.get("/artists")
 async def list_artists():
     """
@@ -34,6 +52,7 @@ async def list_artists():
     await conn.close()
     return [dict(r) for r in rows]
 
+# ─── Latest 24h metrics for one artist ─────────────────────────────────────────
 @app.get("/artist/{aid}/latest")
 async def latest(aid: str):
     """
@@ -45,17 +64,16 @@ async def latest(aid: str):
         return []
     return data
 
+# ─── Top‐growth endpoint ───────────────────────────────────────────────────────
 @app.get("/artists/top-growth")
 async def top_growth(period: str = "7 days", limit: int = 10):
     """
     Return the top `limit` artists by Spotify follower growth over the past `period`.
     `period` must be a valid Postgres interval literal, e.g. '7 days' or '30 days'.
     """
-    # Basic sanitization
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
-    # Build the on-the-fly CTE query
     query = f"""
     WITH windowed AS (
       SELECT
@@ -95,6 +113,7 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     await conn.close()
     return [dict(r) for r in rows]
 
+# ─── WebSocket endpoint ────────────────────────────────────────────────────────
 @app.websocket("/ws/{aid}")
 async def ws_endpoint(websocket: WebSocket, aid: str):
     """
