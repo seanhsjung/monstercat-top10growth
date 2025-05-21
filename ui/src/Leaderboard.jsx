@@ -1,47 +1,59 @@
 // ui/src/Leaderboard.jsx
-import React, { useEffect, useState } from "react"
-import axios from "axios"
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import ArtistDetail from "./ArtistDetail";
 
-export default function Leaderboard({ periodDays = 7, limit = 10 }) {
-  const [leaders, setLeaders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+export default function Leaderboard({ period = "7 days", limit = 10, refreshInterval }) {
+  const [leaders, setLeaders]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [selected, setSelected] = useState(null);
 
-  useEffect(() => {
-    const API = process.env.REACT_APP_API_URL || ""
-    const qs = new URLSearchParams({
-      period_days: periodDays.toString(),
+  // Build the URL for fetching
+  const buildUrl = () => {
+    const API = process.env.REACT_APP_API_URL || "";
+    const params = new URLSearchParams({
+      period: period,
       limit: limit.toString(),
-    }).toString()
-    const url = `${API}/artists/top-growth?${qs}`
+    }).toString();
+    return `${API}/artists/top-growth?${params}`;
+  };
 
-    setLoading(true)
-    setError(null)
-
+  const fetchData = () => {
+    setLoading(true);
+    setError(null);
     axios
-      .get(url)
-      .then(res => {
-        setLeaders(res.data)
-        setLoading(false)
+      .get(buildUrl())
+      .then((res) => {
+        setLeaders(res.data);
+        setLoading(false);
       })
-      .catch(err => {
-        console.error("Leaderboard load error:", err)
-        setError(err)
-        setLoading(false)
-      })
-  }, [periodDays, limit])
+      .catch((err) => {
+        console.error("Leaderboard load error:", err);
+        setError(err);
+        setLoading(false);
+      });
+  };
 
-  if (loading) return <p>Loading leaderboard…</p>
-  if (error)
-    return (
-      <p style={{ color: "red" }}>
-        Error loading leaderboard.
-      </p>
-    )
+  // Initial load & reload on period or limit change
+  useEffect(fetchData, [period, limit]);
+
+  // Polling
+  useEffect(() => {
+    if (!refreshInterval) return;
+    const iv = setInterval(fetchData, refreshInterval);
+    return () => clearInterval(iv);
+  }, [period, limit, refreshInterval]);
+
+  if (loading) return <p>Loading leaderboard…</p>;
+  if (error)   return <p style={{ color: "red" }}>Error loading leaderboard.</p>;
 
   return (
     <div style={{ maxWidth: 600, margin: "40px auto", fontFamily: "sans-serif" }}>
-      <h2>Top {limit} Growth (last {periodDays} days)</h2>
+      <h2>
+        Top {limit} Growth (last{" "}
+        {period === "all" ? "all time" : period})
+      </h2>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ borderBottom: "2px solid #ddd" }}>
@@ -53,8 +65,10 @@ export default function Leaderboard({ periodDays = 7, limit = 10 }) {
           {leaders.map(({ id, name, delta }, i) => (
             <tr
               key={id}
+              onClick={() => setSelected(id)}
               style={{
                 background: i % 2 ? "#f9f9f9" : "#fff",
+                cursor: "pointer",
               }}
             >
               <td style={{ padding: "8px" }}>{name}</td>
@@ -65,6 +79,13 @@ export default function Leaderboard({ periodDays = 7, limit = 10 }) {
           ))}
         </tbody>
       </table>
+
+      {selected && (
+        <ArtistDetail
+          artistId={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
-  )
+  );
 }
