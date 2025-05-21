@@ -6,6 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+@app.on_event("startup")
+async def log_db_url():
+    print(f"[STARTUP] Using DATABASE_URL = {DATABASE_URL}")
+
 # ─── CORS setup ────────────────────────────────────────────────────────────────
 origins = [
     "https://ui-top10growth.onrender.com",  # your deployed UI
@@ -44,9 +48,6 @@ async def fetch_latest(aid: str):
 # ─── List all artists ──────────────────────────────────────────────────────────
 @app.get("/artists")
 async def list_artists():
-    """
-    Return a list of all artists (id + name), sorted alphabetically.
-    """
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch("SELECT id, name FROM artists ORDER BY name")
     await conn.close()
@@ -55,22 +56,25 @@ async def list_artists():
 # ─── Latest 24h metrics for one artist ─────────────────────────────────────────
 @app.get("/artist/{aid}/latest")
 async def latest(aid: str):
-    """
-    Return the last 24h of followers & popularity metrics for the given artist.
-    """
     data = await fetch_latest(aid)
-    if not data:
-        # Could be no data yet or invalid artist
-        return []
-    return data
+    return data or []
 
 # ─── Top‐growth endpoint ───────────────────────────────────────────────────────
 @app.get("/artists/top-growth")
 async def top_growth(period: str = "7 days", limit: int = 10):
-    """
-    Return the top `limit` artists by Spotify follower growth over the past `period`.
-    `period` must be a valid Postgres interval literal, e.g. '7 days' or '30 days'.
-    """
+    print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}")
+    print(f"[DEBUG] DATABASE_URL={DATABASE_URL}")
+    # ... build query ...
+    print("[DEBUG] Executing SQL:", query.replace("\n", " "))
+
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch(query, limit)
+    print(f"[DEBUG] top_growth returned {len(rows)} rows")
+    print("[DEBUG] sample rows:", rows[:5])
+    await conn.close()
+    return [dict(r) for r in rows]
+    # ────────────────────────────────────────────────────────────────────────────
+
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
@@ -108,17 +112,21 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     LIMIT $1;
     """
 
+    # log the fully expanded SQL (newlines replaced for readability)
+    print("[DEBUG] Executing SQL:", query.replace("\n", " "))
+
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch(query, limit)
     await conn.close()
+
+    # log how many rows came back
+    print(f"[DEBUG] top_growth returned {len(rows)} rows")
+
     return [dict(r) for r in rows]
 
 # ─── WebSocket endpoint ────────────────────────────────────────────────────────
 @app.websocket("/ws/{aid}")
 async def ws_endpoint(websocket: WebSocket, aid: str):
-    """
-    WebSocket that pushes the latest 24h metrics for `aid` once per minute.
-    """
     await websocket.accept()
     try:
         while True:
