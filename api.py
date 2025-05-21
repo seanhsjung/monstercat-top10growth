@@ -69,6 +69,13 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
+    # Build interval filter clause
+    if period.lower() == "all":
+        interval_clause = ""
+    else:
+        # sanitize period if needed
+        interval_clause = f"AND ts >= now() - INTERVAL '{period}'"
+
     # Build SQL
     query = f"""
     WITH windowed AS (
@@ -87,7 +94,7 @@ async def top_growth(period: str = "7 days", limit: int = 10):
       FROM metrics
       WHERE source='spotify'
         AND metric='followers'
-        AND ts >= now() - INTERVAL '{period}'
+        {interval_clause}
     )
     SELECT
       a.id,
@@ -107,8 +114,12 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     # Debug SQL
     print("[DEBUG] Executing SQL:", query.replace("\n", " "))
 
-    # Execute
+    # Connect and log metrics count
     conn = await asyncpg.connect(DATABASE_URL)
+    count_row = await conn.fetchrow("SELECT COUNT(*) AS c FROM metrics")
+    print(f"[DEBUG] metrics table has {count_row['c']} rows")
+
+    # Execute CTE
     rows = await conn.fetch(query, limit)
     await conn.close()
 
