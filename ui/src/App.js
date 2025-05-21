@@ -4,11 +4,15 @@ import Leaderboard from "./Leaderboard";
 
 export default function App() {
   const windows = [
-    { label: "7 days", value: "7 days" },
-    { label: "30 days", value: "30 days" },
-    { label: "All time", value: "all" },
+    { label: "Last 24 hours", value: "24 hours" },
+    { label: "Last 3 days",   value: "3 days" },
+    { label: "Last week",      value: "7 days" },
+    { label: "Last month",     value: "30 days" },
+    { label: "All time",       value: "all" },
   ];
-  const [period, setPeriod] = useState("7 days");
+
+  // track the selected window object
+  const [windowSel, setWindowSel] = useState(windows[0]);
 
   return (
     <div style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 800, margin: "0 auto" }}>
@@ -17,8 +21,10 @@ export default function App() {
       <label style={{ display: "block", marginBottom: 16 }}>
         View window:{" "}
         <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
+          value={windowSel.value}
+          onChange={(e) =>
+            setWindowSel(windows.find((w) => w.value === e.target.value))
+          }
           style={{ padding: "4px 8px", fontSize: "1rem" }}
         >
           {windows.map((w) => (
@@ -30,9 +36,10 @@ export default function App() {
       </label>
 
       <Leaderboard
-        period={period}
+        period={windowSel.value}      // for the API query
+        periodLabel={windowSel.label} // for the heading
         limit={10}
-        refreshInterval={5 * 60 * 1000} // auto-refresh every 5 minutes
+        refreshInterval={5 * 60 * 1000}
       />
     </div>
   );
