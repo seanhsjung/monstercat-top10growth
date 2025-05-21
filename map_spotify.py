@@ -1,30 +1,78 @@
+#!/usr/bin/env python3
 import os
-import time
-import psycopg2
-from spotify_helper import search_artist
+import csv
+import json
+from sqlalchemy import create_engine, MetaData, Table, select, update
+from spotify_helper import search_artist_exact
 
-db_url = os.getenv("DATABASE_URL")
-conn   = psycopg2.connect(db_url)
-cur    = conn.cursor()
+# --- CONFIG ---
+DATABASE_URL = os.getenv("DATABASE_URL")
+MANUAL_MAP_FILE = "manual_mappings.json"
+SKIPPED_CSV = "skipped_artists.csv"
+# ---------------
 
-# Select artists without a Spotify ID
-cur.execute("SELECT id, name FROM artists WHERE spotify_id IS NULL")
-rows = cur.fetchall()
+def load_manual_mappings():
+    if os.path.exists(MANUAL_MAP_FILE):
+        with open(MANUAL_MAP_FILE, "r", encoding="utf8") as fh:
+            return json.load(fh)
+    return {}
 
-print(f"Mapping {len(rows)} artists to Spotify...")
-for artist_id, name in rows:
-    sid = search_artist(name)
-    if sid:
-        cur.execute(
-            "UPDATE artists SET spotify_id = %s WHERE id = %s",
-            (sid, artist_id)
-        )
-        conn.commit()
-        print(f" → {name!r} mapped to {sid}")
+def main():
+    if not DATABASE_URL:
+        print("❌  Set DATABASE_URL")
+        return
+
+    manual = load_manual_mappings()
+    engine = create_engine(DATABASE_URL)
+    meta = MetaData()
+    meta.reflect(engine, only=["artists"])
+    artists = meta.tables["artists"]
+
+    skipped = []
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            select(artists.c.id, artists.c.name)
+            .where(artists.c.spotify_id == None)
+        ).all()
+
+        total = len(rows)
+        print(f"Mapping {total} artists → Spotify…")
+
+        for idx, (aid, name) in enumerate(rows, start=1):
+            # 1) manual mapping check
+            if str(aid) in manual:
+                sid = manual[str(aid)]
+                print(f"[{idx}/{total}] '{name}': manual‐mapped → {sid}")
+            else:
+                # 2) try exact
+                try:
+                    sid = search_artist_exact(name)
+                except Exception:
+                    print(f"[{idx}/{total}] '{name}': exact‐match HTTP error, skipping")
+                    sid = None
+
+            if sid:
+                conn.execute(
+                    update(artists)
+                    .where(artists.c.id == aid)
+                    .values(spotify_id=sid)
+                )
+                if str(aid) not in manual:
+                    print(f"[{idx}/{total}] '{name}': mapped → {sid}")
+            else:
+                print(f"[{idx}/{total}] ⚠️ No Spotify match for '{name}', skipping")
+                skipped.append((aid, name))
+
+    # write out any skipped for manual review
+    if skipped:
+        with open(SKIPPED_CSV, "w", newline="", encoding="utf8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["id", "name"])
+            writer.writerows(skipped)
+        print(f"\n🔍  {len(skipped)} artists skipped—see {SKIPPED_CSV} to manually add their Spotify IDs.")
     else:
-        print(f" ⚠️  No match for {name!r}")
-    time.sleep(1)  # keep to 1 req/sec
+        print("\n✅  All artists mapped.")
 
-cur.close()
-conn.close()
-print("Mapping complete.")
+if __name__ == "__main__":
+    main()

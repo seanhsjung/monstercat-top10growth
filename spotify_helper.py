@@ -1,51 +1,58 @@
 import os
-import time
 import requests
 
-CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID")
-CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+TOKEN_URL = "https://accounts.spotify.com/api/token"
+SEARCH_URL = "https://api.spotify.com/v1/search"
 
-_token_info = {"access_token": None, "expires_at": 0}
+CLIENT_ID     = os.getenv("SPOTIPY_CLIENT_ID")
+CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 
 def get_token():
-    """
-    Returns a valid Spotify bearer token, refreshing it if it’s expired.
-    """
-    now = int(time.time())
-    # If we have a token and it won’t expire for at least another 60 seconds, reuse it
-    if _token_info["access_token"] and now < _token_info["expires_at"] - 60:
-        return _token_info["access_token"]
-
-    # Otherwise, request a new one via Client Credentials flow
     resp = requests.post(
-        "https://accounts.spotify.com/api/token",
+        TOKEN_URL,
         data={"grant_type": "client_credentials"},
         auth=(CLIENT_ID, CLIENT_SECRET),
+        timeout=5,
     )
     resp.raise_for_status()
-    payload = resp.json()
-    # Cache the new token and its expiry timestamp
-    _token_info["access_token"] = payload["access_token"]
-    _token_info["expires_at"]   = now + payload.get("expires_in", 3600)
-    return payload["access_token"]
+    return resp.json()["access_token"]
 
-
-def search_artist(name: str) -> str | None:
+def search_artist_exact(name: str):
+    """
+    Perform an exact artist search on Spotify:
+    - Query up to 10 artists for the given name.
+    - Return the first one whose artist["name"] exactly matches ours
+      (case-insensitive).
+    - If none match exactly, return None.
+    """
     token = get_token()
-    headers = {"Authorization": f"Bearer {token}"}
-    params  = {"q": name, "type": "artist", "limit": 1}
-    resp    = requests.get("https://api.spotify.com/v1/search", headers=headers, params=params)
+    resp = requests.get(
+        SEARCH_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        params={"q": f'artist:"{name}"', "type": "artist", "limit": 10},
+        timeout=5,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("artists", {}).get("items", [])
+    lower_name = name.strip().lower()
+
+    for artist in items:
+        if artist["name"].strip().lower() == lower_name:
+            return artist["id"]
+    # no exact match in top 10 → skip
+    return None
+
+def search_artist_fuzzy(name: str):
+    """
+    Fuzzy-match fallback (only call this if you really want to guess).
+    """
+    token = get_token()
+    resp = requests.get(
+        SEARCH_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        params={"q": name, "type": "artist", "limit": 1},
+        timeout=5,
+    )
     resp.raise_for_status()
     items = resp.json().get("artists", {}).get("items", [])
     return items[0]["id"] if items else None
-
-def get_artist_stats(artist_id: str) -> dict:
-    """
-    Fetches the artist’s data (followers & popularity) from Spotify.
-    """
-    token = get_token()
-    headers = {"Authorization": f"Bearer {token}"}
-    url = f"https://api.spotify.com/v1/artists/{artist_id}"
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    return resp.json()
