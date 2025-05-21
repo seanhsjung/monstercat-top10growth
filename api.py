@@ -6,14 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-@app.on_event("startup")
-async def log_db_url():
-    print(f"[STARTUP] Using DATABASE_URL = {DATABASE_URL}")
-
 # ─── CORS setup ────────────────────────────────────────────────────────────────
 origins = [
-    "https://ui-top10growth.onrender.com",  # your deployed UI
-    "http://localhost:3000",                # for local React dev
+    "https://ui-top10growth.onrender.com",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
@@ -28,6 +24,10 @@ app.add_middleware(
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Set the DATABASE_URL env var before running")
+
+@app.on_event("startup")
+async def log_db_url():
+    print(f"[STARTUP] Using DATABASE_URL = {DATABASE_URL}")
 
 # ─── Helper: fetch last 24h of metrics for an artist ────────────────────────────
 async def fetch_latest(aid: str):
@@ -62,22 +62,14 @@ async def latest(aid: str):
 # ─── Top‐growth endpoint ───────────────────────────────────────────────────────
 @app.get("/artists/top-growth")
 async def top_growth(period: str = "7 days", limit: int = 10):
+    # Debug inputs
     print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}")
-    print(f"[DEBUG] DATABASE_URL={DATABASE_URL}")
-    # ... build query ...
-    print("[DEBUG] Executing SQL:", query.replace("\n", " "))
 
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch(query, limit)
-    print(f"[DEBUG] top_growth returned {len(rows)} rows")
-    print("[DEBUG] sample rows:", rows[:5])
-    await conn.close()
-    return [dict(r) for r in rows]
-    # ────────────────────────────────────────────────────────────────────────────
-
+    # Validate params
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
+    # Build SQL
     query = f"""
     WITH windowed AS (
       SELECT
@@ -112,16 +104,19 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     LIMIT $1;
     """
 
-    # log the fully expanded SQL (newlines replaced for readability)
+    # Debug SQL
     print("[DEBUG] Executing SQL:", query.replace("\n", " "))
 
+    # Execute
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch(query, limit)
     await conn.close()
 
-    # log how many rows came back
+    # Debug results
     print(f"[DEBUG] top_growth returned {len(rows)} rows")
+    print("[DEBUG] sample rows:", rows[:5])
 
+    # Return JSON
     return [dict(r) for r in rows]
 
 # ─── WebSocket endpoint ────────────────────────────────────────────────────────
