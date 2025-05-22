@@ -1,5 +1,6 @@
-// ui/src/ArtistDetail.jsx
+// src/ArtistDetail.jsx
 import React, { useEffect, useState } from "react";
+import styles from "./ArtistDetail.module.css";
 import { fetchArtists, fetchLatest } from "./api";
 import {
   LineChart,
@@ -17,65 +18,52 @@ export default function ArtistDetail({ artistId, onClose }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      fetchArtists(),
-      fetchLatest(artistId)
-    ]).then(([allArtists, metrics]) => {
-      const art = allArtists.find((a) => a.id === artistId);
-      setName(art?.name || artistId);
+    Promise.all([fetchArtists(), fetchLatest(artistId)]).then(
+      ([allArtists, metrics]) => {
+        const art = allArtists.find(a => a.id === artistId);
+        setName(art?.name || artistId);
 
-      // only followers series
-      const series = metrics
-        .filter((d) => d.metric === "followers")
-        .map((d) => ({
-          time: new Date(d.ts).toLocaleTimeString(),
-          followers: d.val
-        }));
-      setData(series);
-      setLoading(false);
-    });
+        const series = metrics
+          .filter(d => d.metric === "followers")
+          .map(d => ({
+            time: new Date(d.ts).toLocaleTimeString(),
+            followers: d.val
+          }));
+        setData(series);
+        setLoading(false);
+      }
+    );
   }, [artistId]);
 
   if (loading) return <p>Loading detail…</p>;
 
   return (
-    <div
-      style={{
-        marginTop: 20,
-        position: "relative",
-        padding: 20,
-        border: "1px solid #ccc",
-        borderRadius: 8,
-        background: "#fff"
-      }}
-    >
-      <button
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          cursor: "pointer",
-          border: "none",
-          background: "transparent",
-          fontSize: 18
-        }}
-      >
+    <div className={styles.card}>
+      <button onClick={onClose} className={styles.closeBtn}>
         ✕
       </button>
-      <h3>{name} — Last 24 h Followers</h3>
+      <h3 className={styles.title}>
+        {name} — Last 24 h Followers
+      </h3>
+
       {data.length === 0 ? (
         <p>No data available yet.</p>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={data}>
-            <XAxis dataKey="time" />
-            <YAxis domain={["auto", "auto"]} />
-            <Tooltip />
+            <XAxis dataKey="time" stroke="var(--color-text-sub)" />
+            <YAxis domain={["auto","auto"]} stroke="var(--color-text-sub)" />
+            <Tooltip
+              wrapperStyle={{
+                backgroundColor: "rgba(26,26,26,0.9)",
+                border: "none",
+                color: "var(--color-text-main)"
+              }}
+            />
             <Line
               type="monotone"
               dataKey="followers"
-              stroke="#8884d8"
+              stroke="var(--color-accent-cyan)"
               dot={false}
             />
           </LineChart>

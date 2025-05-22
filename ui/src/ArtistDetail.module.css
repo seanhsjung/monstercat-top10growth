@@ -1,0 +1,27 @@
+.card {
+  background: var(--color-secondary-bg);
+  border-radius: var(--r-radius);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
+  position: relative;
+  margin-top: 1.5rem;
+}
+.closeBtn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--color-text-sub);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.closeBtn:hover {
+  color: var(--color-text-main);
+}
+.title {
+  font-size: var(--fs-h2);
+  margin-bottom: 1rem;
+  color: var(--color-text-main);
+}

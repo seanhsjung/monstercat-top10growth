@@ -1,0 +1,27 @@
+.root {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+.title {
+  font-size: var(--fs-h1);
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+}
+.selectWrapper {
+  display: inline-block;
+  margin-bottom: 2rem;
+}
+.select {
+  background: var(--color-secondary-bg);
+  color: var(--color-text-main);
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--color-accent-cyan);
+  border-radius: var(--r-radius);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+.select:hover {
+  box-shadow: var(--shadow-glow);
+}

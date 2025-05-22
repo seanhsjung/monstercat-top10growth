@@ -1,0 +1,22 @@
+:root {
+  /* Base colors */
+  --color-primary-bg:   #0D0D0D;
+  --color-secondary-bg: #1A1A1A;
+  --color-text-main:    #FFFFFF;
+  --color-text-sub:     #B3B3B3;
+
+  /* Neon accents */
+  --color-accent-cyan:  #00FFC6;
+  --color-accent-mag:   #FF00EA;
+
+  /* Typography */
+  --font-primary: 'Gilroy', ui-sans-serif, system-ui;
+  --fs-h1: 2.25rem;   /* 36px */
+  --fs-h2: 1.5rem;    /* 24px */
+  --fs-body: 1rem;    /* 16px */
+
+  /* Radii & shadows */
+  --r-radius: 1.5rem;
+  --shadow-card: 0 4px 12px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 8px rgba(0,255,198,0.8);
+}

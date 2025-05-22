@@ -1,5 +1,6 @@
-// ui/src/Leaderboard.jsx
+// src/Leaderboard.jsx
 import React, { useEffect, useState } from "react";
+import styles from "./Leaderboard.module.css";
 import { fetchTopGrowth } from "./api";
 import ArtistDetail from "./ArtistDetail";
 
@@ -14,45 +15,60 @@ export default function Leaderboard({
   const [error, setError]       = useState(null);
   const [selected, setSelected] = useState(null);
 
-  const fetchData = () => {
+  // Fetch on mount and whenever `period` or `limit` changes
+  useEffect(() => {
     setLoading(true);
     setError(null);
+
     fetchTopGrowth(period, limit)
-      .then((data) => {
+      .then(data => {
         setLeaders(data);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch(err => {
         console.error("Leaderboard load error:", err);
         setError(err);
         setLoading(false);
       });
-  };
+  }, [period, limit]);
 
-  // initial load & on period/limit change
-  useEffect(fetchData, [period, limit]);
-
-  // polling
+  // Poll every `refreshInterval` milliseconds
   useEffect(() => {
     if (!refreshInterval) return;
-    const iv = setInterval(fetchData, refreshInterval);
-    return () => clearInterval(iv);
+
+    const intervalId = setInterval(() => {
+      setLoading(true);
+      setError(null);
+
+      fetchTopGrowth(period, limit)
+        .then(data => {
+          setLeaders(data);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error("Leaderboard load error:", err);
+          setError(err);
+          setLoading(false);
+        });
+    }, refreshInterval);
+
+    return () => clearInterval(intervalId);
   }, [period, limit, refreshInterval]);
 
   if (loading) return <p>Loading leaderboard…</p>;
   if (error)   return <p style={{ color: "red" }}>Error loading leaderboard.</p>;
 
   return (
-    <div style={{ maxWidth: 600, margin: "40px auto", fontFamily: "sans-serif" }}>
-      <h2>
+    <div className={styles.container}>
+      <h2 className={styles.heading}>
         Top {limit} Growth ({periodLabel})
       </h2>
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table className={styles.table}>
         <thead>
-          <tr style={{ borderBottom: "2px solid #ddd" }}>
-            <th style={{ textAlign: "left", padding: "8px" }}>Artist</th>
-            <th style={{ textAlign: "right", padding: "8px" }}>Δ Followers</th>
+          <tr>
+            <th className={styles.th}>Artist</th>
+            <th className={styles.th}>Δ Followers</th>
           </tr>
         </thead>
         <tbody>
@@ -60,13 +76,11 @@ export default function Leaderboard({
             <tr
               key={id}
               onClick={() => setSelected(id)}
-              style={{
-                background: i % 2 ? "#f9f9f9" : "#fff",
-                cursor: "pointer",
-              }}
+              className={styles.row}
             >
-              <td style={{ padding: "8px" }}>{name}</td>
-              <td style={{ padding: "8px", textAlign: "right" }}>
+              <td className={styles.td}>{name}</td>
+              <td className={styles.td} style={{ textAlign: "right" }}>
+                <span style={{ color: "var(--color-accent-cyan)" }}>Δ</span>{" "}
                 {delta.toLocaleString()}
               </td>
             </tr>
@@ -75,7 +89,10 @@ export default function Leaderboard({
       </table>
 
       {selected && (
-        <ArtistDetail artistId={selected} onClose={() => setSelected(null)} />
+        <ArtistDetail
+          artistId={selected}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

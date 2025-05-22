@@ -1,0 +1,40 @@
+.container {
+  background: var(--color-secondary-bg);
+  border-radius: var(--r-radius);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+.heading {
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.th {
+  text-align: left;
+  padding: 0.75rem;
+  color: var(--color-text-sub);
+  border-bottom: 2px solid #333;
+}
+.td {
+  padding: 0.75rem;
+  color: var(--color-text-main);
+}
+.row {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+.row:nth-child(odd) {
+  background: var(--color-primary-bg);
+}
+.row:nth-child(even) {
+  background: var(--color-secondary-bg);
+}
+.row:hover {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-glow);
+}
