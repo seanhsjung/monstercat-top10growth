@@ -1,78 +1,83 @@
 #!/usr/bin/env python3
 import os
-import csv
+import sys
 import json
+import logging
 from sqlalchemy import create_engine, MetaData, Table, select, update
 from spotify_helper import search_artist_exact
 
-# --- CONFIG ---
-DATABASE_URL = os.getenv("DATABASE_URL")
-MANUAL_MAP_FILE = "manual_mappings.json"
-SKIPPED_CSV = "skipped_artists.csv"
-# ---------------
+# ─── Config & Logging ─────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
-def load_manual_mappings():
-    if os.path.exists(MANUAL_MAP_FILE):
-        with open(MANUAL_MAP_FILE, "r", encoding="utf8") as fh:
-            return json.load(fh)
-    return {}
+# ─── Paths & Env ───────────────────────────────────────────────────────────────
+DATABASE_URL    = os.getenv("DATABASE_URL")
+MANUAL_JSON     = "manual_mappings.json"
 
+if not DATABASE_URL:
+    logger.error("Set DATABASE_URL env var (e.g. postgres://...)" )
+    sys.exit(1)
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
 def main():
-    if not DATABASE_URL:
-        print("❌  Set DATABASE_URL")
-        return
+    # 1) load manual overrides keyed by DB ID
+    try:
+        with open(MANUAL_JSON, "r") as f:
+            overrides: dict[str, str] = json.load(f)
+    except FileNotFoundError:
+        logger.error(
+            f"{MANUAL_JSON} not found. Fill it with your manual "
+            "{db_id: spotify_id} pairs first."
+        )
+        sys.exit(1)
 
-    manual = load_manual_mappings()
-    engine = create_engine(DATABASE_URL)
-    meta = MetaData()
-    meta.reflect(engine, only=["artists"])
-    artists = meta.tables["artists"]
+    # 2) connect & reflect
+    engine   = create_engine(DATABASE_URL, future=True)
+    metadata = MetaData()
+    artists  = Table("artists", metadata, autoload_with=engine)
 
-    skipped = []
-
+    # 3) pull all artists needing a spotify_id
     with engine.begin() as conn:
-        rows = conn.execute(
+        to_map = conn.execute(
             select(artists.c.id, artists.c.name)
-            .where(artists.c.spotify_id == None)
+            .where(artists.c.spotify_id.is_(None))
         ).all()
 
-        total = len(rows)
-        print(f"Mapping {total} artists → Spotify…")
+    total = len(to_map)
+    logger.info(f"Mapping {total} artists → Spotify…")
 
-        for idx, (aid, name) in enumerate(rows, start=1):
-            # 1) manual mapping check
-            if str(aid) in manual:
-                sid = manual[str(aid)]
-                print(f"[{idx}/{total}] '{name}': manual‐mapped → {sid}")
-            else:
-                # 2) try exact
-                try:
-                    sid = search_artist_exact(name)
-                except Exception:
-                    print(f"[{idx}/{total}] '{name}': exact‐match HTTP error, skipping")
-                    sid = None
-
-            if sid:
+    # 4) iterate & upsert
+    for idx, (db_id, name) in enumerate(to_map, 1):
+        # 4a) check manual override by DB id
+        key = str(db_id)
+        if key in overrides:
+            sid = overrides[key]
+            logger.info(f"[{idx}/{total}] '{name}' (#{db_id}) manual‐mapped → {sid}")
+            with engine.begin() as conn:
                 conn.execute(
                     update(artists)
-                    .where(artists.c.id == aid)
+                    .where(artists.c.id == db_id)
                     .values(spotify_id=sid)
                 )
-                if str(aid) not in manual:
-                    print(f"[{idx}/{total}] '{name}': mapped → {sid}")
-            else:
-                print(f"[{idx}/{total}] ⚠️ No Spotify match for '{name}', skipping")
-                skipped.append((aid, name))
+            continue
 
-    # write out any skipped for manual review
-    if skipped:
-        with open(SKIPPED_CSV, "w", newline="", encoding="utf8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["id", "name"])
-            writer.writerows(skipped)
-        print(f"\n🔍  {len(skipped)} artists skipped—see {SKIPPED_CSV} to manually add their Spotify IDs.")
-    else:
-        print("\n✅  All artists mapped.")
+        # 4b) otherwise, hit Spotify
+        logger.info(f"[{idx}/{total}] searching '{name}'…")
+        sid = search_artist_exact(name)
+        if not sid:
+            logger.warning(f"[{idx}/{total}] ⚠️ No Spotify match for '{name}', skipping")
+            continue
+
+        # 4c) write it back
+        logger.info(f"[{idx}/{total}] → {sid}")
+        with engine.begin() as conn:
+            conn.execute(
+                update(artists)
+                .where(artists.c.id == db_id)
+                .values(spotify_id=sid)
+            )
+
+    logger.info("Done.")
 
 if __name__ == "__main__":
     main()
