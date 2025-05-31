@@ -1,4 +1,4 @@
-// ui/src/api.js
+// src/api.js
 
 // Reads from your Render‐provided env var or falls back to localhost for dev
 const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
@@ -11,10 +11,14 @@ export function fetchArtists() {
 }
 
 /**
- * Get latest 24h metrics for one artist
+ * Get follower metrics for one artist over a given period.
+ *
+ * @param {string} aid
+ * @param {string} period  e.g. "24 hours", "7 days", "all"
  */
-export function fetchLatest(aid) {
-  return fetch(`${API}/artist/${aid}/latest`).then((r) => r.json());
+export function fetchLatest(aid, period = "24 hours") {
+  const params = new URLSearchParams({ period });
+  return fetch(`${API}/artist/${aid}/metrics?${params}`).then((r) => r.json());
 }
 
 /**

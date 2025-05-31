@@ -45,7 +45,8 @@ async def fetch_latest(aid: str):
     await conn.close()
     return [dict(r) for r in rows]
 
-# ─── List all artists ──────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Existing endpoint: list all artists
 @app.get("/artists")
 async def list_artists():
     conn = await asyncpg.connect(DATABASE_URL)
@@ -53,30 +54,71 @@ async def list_artists():
     await conn.close()
     return [dict(r) for r in rows]
 
-# ─── Latest 24h metrics for one artist ─────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Existing endpoint: latest 24h metrics for one artist
 @app.get("/artist/{aid}/latest")
 async def latest(aid: str):
     data = await fetch_latest(aid)
     return data or []
 
-# ─── Top‐growth endpoint ───────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# NEW: “metrics over arbitrary period” endpoint
+#    - e.g. GET /artist/{aid}/metrics?period=7 days     OR
+#            GET /artist/{aid}/metrics?period=all
+#
+#    Query parameters:
+#      * period = "24 hours" (default)   OR
+#      * period = "3 days", "7 days", "30 days", ..., "all"
+#
+@app.get("/artist/{aid}/metrics")
+async def metrics(aid: str, period: str = "24 hours"):
+    conn = await asyncpg.connect(DATABASE_URL)
+
+    # If the user wants “all time,” don’t filter by ts
+    if period.lower() == "all":
+        rows = await conn.fetch(
+            """
+            SELECT metric, val, ts
+              FROM metrics
+             WHERE artist_id = $1
+               AND source = 'spotify'
+               AND metric = 'followers'
+             ORDER BY ts
+            """,
+            aid,
+        )
+    else:
+        # Otherwise subtract “period” from now()
+        # (e.g. INTERVAL '7 days', INTERVAL '24 hours', INTERVAL '30 days')
+        query = f"""
+        SELECT metric, val, ts
+          FROM metrics
+         WHERE artist_id = $1
+           AND source = 'spotify'
+           AND metric = 'followers'
+           AND ts >= now() - INTERVAL '{period}'
+         ORDER BY ts
+        """
+        rows = await conn.fetch(query, aid)
+
+    await conn.close()
+    return [dict(r) for r in rows]
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Existing: Top‐growth endpoint (unchanged)
 @app.get("/artists/top-growth")
 async def top_growth(period: str = "7 days", limit: int = 10):
     # Debug inputs
     print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}")
 
-    # Validate params
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
-    # Build interval filter clause
     if period.lower() == "all":
         interval_clause = ""
     else:
-        # sanitize period if needed
         interval_clause = f"AND ts >= now() - INTERVAL '{period}'"
 
-    # Build SQL
     query = f"""
     WITH windowed AS (
       SELECT
@@ -111,26 +153,22 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     LIMIT $1;
     """
 
-    # Debug SQL
     print("[DEBUG] Executing SQL:", query.replace("\n", " "))
 
-    # Connect and log metrics count
     conn = await asyncpg.connect(DATABASE_URL)
     count_row = await conn.fetchrow("SELECT COUNT(*) AS c FROM metrics")
     print(f"[DEBUG] metrics table has {count_row['c']} rows")
 
-    # Execute CTE
     rows = await conn.fetch(query, limit)
     await conn.close()
 
-    # Debug results
     print(f"[DEBUG] top_growth returned {len(rows)} rows")
     print("[DEBUG] sample rows:", rows[:5])
 
-    # Return JSON
     return [dict(r) for r in rows]
 
-# ─── WebSocket endpoint ────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Existing: WebSocket endpoint (unchanged)
 @app.websocket("/ws/{aid}")
 async def ws_endpoint(websocket: WebSocket, aid: str):
     await websocket.accept()

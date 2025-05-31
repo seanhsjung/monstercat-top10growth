@@ -1,98 +1,82 @@
-// src/Leaderboard.jsx
+// src/ArtistDetail.jsx
 import React, { useEffect, useState } from "react";
-import styles from "./Leaderboard.module.css";
-import { fetchTopGrowth } from "./api";
-import ArtistDetail from "./ArtistDetail";
+import styles from "./ArtistDetail.module.css";
+import { fetchArtists, fetchLatest } from "./api";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer
+} from "recharts";
 
-export default function Leaderboard({
-  period,
-  periodLabel,
-  limit = 10,
-  refreshInterval,
+export default function ArtistDetail({
+  artistId,
+  period = "24 hours",         // default fallback
+  periodLabel = "Last 24 h",   // default fallback
+  onClose
 }) {
-  const [leaders, setLeaders]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [selected, setSelected] = useState(null);
+  const [data, setData]       = useState([]);
+  const [name, setName]       = useState("");
+  const [loading, setLoading] = useState(true);
 
-  // Fetch on mount and whenever `period` or `limit` changes
   useEffect(() => {
     setLoading(true);
-    setError(null);
 
-    fetchTopGrowth(period, limit)
-      .then(data => {
-        setLeaders(data);
+    // 1) Fetch all artists (to look up the name)
+    // 2) Fetch follower‐over‐time for this artist & period
+    Promise.all([fetchArtists(), fetchLatest(artistId, period)]).then(
+      ([allArtists, metrics]) => {
+        const art = allArtists.find(a => a.id === artistId);
+        setName(art?.name || artistId);
+
+        // Build a data series: one point per timestamp
+        const series = metrics.map(d => ({
+          // use locale string to show date+time (because range might be >24h)
+          time: new Date(d.ts).toLocaleString(),
+          followers: d.val
+        }));
+
+        setData(series);
         setLoading(false);
-      })
-      .catch(err => {
-        console.error("Leaderboard load error:", err);
-        setError(err);
-        setLoading(false);
-      });
-  }, [period, limit]);
+      }
+    );
+  }, [artistId, period]);
 
-  // Poll every `refreshInterval` milliseconds
-  useEffect(() => {
-    if (!refreshInterval) return;
-
-    const intervalId = setInterval(() => {
-      setLoading(true);
-      setError(null);
-
-      fetchTopGrowth(period, limit)
-        .then(data => {
-          setLeaders(data);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Leaderboard load error:", err);
-          setError(err);
-          setLoading(false);
-        });
-    }, refreshInterval);
-
-    return () => clearInterval(intervalId);
-  }, [period, limit, refreshInterval]);
-
-  if (loading) return <p>Loading leaderboard…</p>;
-  if (error)   return <p style={{ color: "red" }}>Error loading leaderboard.</p>;
+  if (loading) return <p>Loading detail…</p>;
 
   return (
-    <div className={styles.container}>
-      <h2 className={styles.heading}>
-        Top {limit} Growth ({periodLabel})
-      </h2>
+    <div className={styles.card}>
+      <button onClick={onClose} className={styles.closeBtn}>
+        ✕
+      </button>
+      <h3 className={styles.title}>
+        {name} — {periodLabel} Followers
+      </h3>
 
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th className={styles.th}>Artist</th>
-            <th className={styles.th}>Δ Followers</th>
-          </tr>
-        </thead>
-        <tbody>
-          {leaders.map(({ id, name, delta }, i) => (
-            <tr
-              key={id}
-              onClick={() => setSelected(id)}
-              className={styles.row}
-            >
-              <td className={styles.td}>{name}</td>
-              <td className={styles.td} style={{ textAlign: "right" }}>
-                <span style={{ color: "var(--color-accent-cyan)" }}>Δ</span>{" "}
-                {delta.toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {selected && (
-        <ArtistDetail
-          artistId={selected}
-          onClose={() => setSelected(null)}
-        />
+      {data.length === 0 ? (
+        <p>No data available for this period.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={data}>
+            <XAxis dataKey="time" stroke="var(--color-text-sub)" />
+            <YAxis domain={["auto","auto"]} stroke="var(--color-text-sub)" />
+            <Tooltip
+              wrapperStyle={{
+                backgroundColor: "rgba(26,26,26,0.9)",
+                border: "none",
+                color: "var(--color-text-main)"
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="followers"
+              stroke="var(--color-accent-cyan)"
+              dot={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       )}
     </div>
   );
