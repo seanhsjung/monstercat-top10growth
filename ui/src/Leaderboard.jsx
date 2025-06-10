@@ -1,3 +1,5 @@
+// src/Leaderboard.jsx
+
 import React, { useEffect, useState } from "react";
 import styles from "./Leaderboard.module.css";
 import { fetchTopGrowth } from "./api";
@@ -57,7 +59,11 @@ export default function Leaderboard({
   if (loading) {
     return (
       <div className={styles.loadingContainer}>
-        <div className={styles.loadingBar} />
+        <img
+          src="/monstercat_logo.png"
+          alt="Loading leaderboard…"
+          className={styles.spinner}
+        />
       </div>
     );
   }
