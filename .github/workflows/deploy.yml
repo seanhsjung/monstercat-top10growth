@@ -25,6 +25,6 @@ jobs:
           region: us-central1
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           source: .
-          flags: --allow-unauthenticated
+          flags: --allow-unauthenticated --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }}
 
       - run: echo "${{ steps.deploy.outputs.url }}"
