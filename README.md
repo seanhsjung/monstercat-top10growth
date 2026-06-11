@@ -83,6 +83,33 @@ One-time GCP setup (before the first push):
 
 `deploy.yml` passes `DATABASE_URL` to Cloud Run via `--set-env-vars` on every deploy, so no manual post-deploy step is needed for the API to start. If you later deploy a frontend, set `ALLOWED_ORIGINS` the same way (either add it to `deploy.yml`'s `flags`, or run `gcloud run services update mc-top10growth-api --region=us-central1 --update-env-vars ALLOWED_ORIGINS="https://<your-frontend>.netlify.app" --project=<PROJECT_ID>`).
 
+Deploy the Frontend to Netlify
+
+The React app lives in `ui/` and talks to the Cloud Run API via `fetch` calls in `ui/src/api.js`, which read `process.env.REACT_APP_API_URL` (baked in at build time). `ui/.env.production` already sets this to the live Cloud Run URL, so no Netlify environment variable is required — though you can override it by setting `REACT_APP_API_URL` in the Netlify UI if the API URL ever changes (Netlify's build env vars take precedence over `.env.production`).
+
+`ui/public/_redirects` (`/*  /index.html  200`) already handles SPA routing, so no changes were needed there. A root-level `netlify.toml` was added because the app lives in a subdirectory — it tells Netlify the base directory, build command, and publish directory:
+
+```toml
+[build]
+  base = "ui"
+  command = "npm run build"
+  publish = "build"
+```
+
+Connect the repo to Netlify:
+
+1. In the Netlify dashboard: **Add new site → Import an existing project → Deploy with GitHub** (authorize access to `seanhsjung/monstercat-top10growth` if prompted).
+2. Netlify auto-detects `netlify.toml` and pre-fills Base directory `ui`, Build command `npm run build`, Publish directory `ui/build`. Leave these as-is.
+3. Click **Deploy site**. Netlify installs dependencies, runs the build, and publishes `ui/build` to a generated URL like `https://<random-name>.netlify.app`.
+4. (Optional) Rename the site under **Site configuration → General → Site details → Change site name** for a friendlier URL.
+5. **Required follow-up**: add the Netlify URL to the API's CORS allow-list — Cloud Run currently only allows `http://localhost:3000`. Update `deploy.yml`'s `flags` to include `ALLOWED_ORIGINS`, e.g.:
+   ```
+   flags: --allow-unauthenticated --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }},ALLOWED_ORIGINS=https://<your-site>.netlify.app
+   ```
+   then push to `main` to redeploy the API with the updated CORS origin.
+
+Future pushes to `main` that touch `ui/` will trigger a Netlify rebuild automatically once the site is connected.
+
 📡 API Endpoints
 
 GET /artists — List all Monstercat artists (id, name).
