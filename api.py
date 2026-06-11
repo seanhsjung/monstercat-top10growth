@@ -7,10 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 
 # ─── CORS setup ────────────────────────────────────────────────────────────────
-origins = [
-    "https://ui-top10growth.onrender.com",
-    "http://localhost:3000",
-]
+origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,

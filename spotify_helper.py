@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import time
 import json
 import logging
@@ -55,6 +56,10 @@ SEARCH_URL       = 'https://api.spotify.com/v1/search'
 ARTIST_ALBUMS    = 'https://api.spotify.com/v1/artists/{id}/albums'
 ALBUM_DETAIL_URL = 'https://api.spotify.com/v1/albums/{id}'
 
+# ─── Monstercat Endpoints ───────────────────────────────────────────────────────
+MONSTERCAT_ARTISTS_API = 'https://player.monstercat.app/api/artists'
+SPOTIFY_ID_RE          = re.compile(r"^[A-Za-z0-9]{22}$")
+
 def spotify_get(url, headers, params=None, timeout=5):
     """
     Wrap requests.get with auto-retry on 429.
@@ -68,6 +73,58 @@ def spotify_get(url, headers, params=None, timeout=5):
             continue
         resp.raise_for_status()
         return resp
+
+def _extract_spotify_id(url: str) -> str | None:
+    """
+    Given a Monstercat profile 'Links' URL, extract a 22-char Spotify
+    artist ID if the URL is a recognizable open.spotify.com/artist/<id>
+    link. Returns None for malformed/non-artist links.
+    """
+    url = (url or "").strip()
+    m = re.search(r"open\.spotify\.com/artist/([^/?\s]+)", url)
+    if not m:
+        return None
+    candidate = m.group(1).strip()
+    return candidate if SPOTIFY_ID_RE.match(candidate) else None
+
+
+def fetch_monstercat_spotify_links() -> dict[str, str]:
+    """
+    Paginate Monstercat's public /api/artists endpoint (no auth) and return
+    a dict mapping {monstercat_artist_id: spotify_artist_id} for every
+    artist whose 'Links' array contains a valid Spotify artist URL.
+    """
+    result = {}
+    offset = 0
+    limit  = 100
+
+    while True:
+        resp = requests.get(
+            MONSTERCAT_ARTISTS_API,
+            params={"limit": limit, "offset": offset},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data  = resp.json()["Artists"]
+        batch = data["Data"]
+        if not batch:
+            break
+
+        for artist in batch:
+            for link in artist.get("Links") or []:
+                if link.get("Platform") == "Spotify":
+                    sid = _extract_spotify_id(link.get("Url", ""))
+                    if sid:
+                        result[artist["Id"]] = sid
+                    break
+
+        offset += limit
+        if offset >= data["Total"]:
+            break
+        time.sleep(0.2)
+
+    return result
+
 
 def search_artist_exact(name: str) -> str | None:
     """
@@ -83,7 +140,7 @@ def search_artist_exact(name: str) -> str | None:
     params  = {
         'q':        f'artist:"{name}"',
         'type':     'artist',
-        'limit':    1,
+        'limit':    5,
         'market':   'US',
     }
 
@@ -98,15 +155,16 @@ def search_artist_exact(name: str) -> str | None:
         logger.info(f"No exact match for '{name}'")
         return None
 
-    artist_id = items[0]['id']
-    if has_monstercat_release(artist_id):
-        # cache and persist
-        _name_cache[name] = artist_id
-        with open(NAME_CACHE_FILE, "w") as f:
-            json.dump(_name_cache, f, indent=2)
-        return artist_id
+    for item in items:
+        artist_id = item['id']
+        if has_monstercat_release(artist_id):
+            # cache and persist
+            _name_cache[name] = artist_id
+            with open(NAME_CACHE_FILE, "w") as f:
+                json.dump(_name_cache, f, indent=2)
+            return artist_id
 
-    logger.info(f"'{name}' found but no Monstercat release → skipping")
+    logger.info(f"'{name}' found ({len(items)} candidates) but none have a Monstercat release → skipping")
     return None
 
 def has_monstercat_release(artist_id: str) -> bool:

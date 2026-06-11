@@ -3,5 +3,5 @@ __pycache__/
 *.pyc
 ui/node_modules/
 ui/build/
-ui/node_modules/
-ui/build/
+.envrc
+skipped_artists.csv

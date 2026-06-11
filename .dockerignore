@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+ui/
+.envrc
+.env*
+.DS_Store
+manual_mappings.csv
