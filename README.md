@@ -29,12 +29,12 @@ GitHub repo secrets needed (Settings → Secrets and variables → Actions):
 
 | Secret | Used by | Purpose |
 |---|---|---|
-| `DATABASE_URL` | etl.yml | Neon connection string for the daily ETL run |
+| `DATABASE_URL` | etl.yml, deploy.yml | Neon connection string — used for the daily ETL run and set as a Cloud Run env var on every deploy |
 | `SPOTIPY_CLIENT_ID` / `SPOTIPY_CLIENT_SECRET` | etl.yml | Spotify API credentials |
 | `GCP_SA_KEY` | deploy.yml | Service account JSON key for deploying to Cloud Run |
 | `GCP_PROJECT_ID` | deploy.yml | Target GCP project ID |
 
-`DATABASE_URL` and `ALLOWED_ORIGINS` are set once directly on the Cloud Run service (see below) rather than via the deploy workflow, so they persist across deploys.
+`ALLOWED_ORIGINS` is not set by default (the API falls back to `http://localhost:3000`). Once a frontend is deployed, set it via `gcloud run services update` (see below) or add it to `deploy.yml`'s `--set-env-vars`.
 
 Seed & run locally
 
@@ -76,14 +76,12 @@ One-time GCP setup (before the first push):
    ```
    gcloud iam service-accounts create gh-deployer --display-name="GitHub Actions Cloud Run deployer" --project=<PROJECT_ID>
    ```
-   Roles: `roles/run.admin`, `roles/cloudbuild.builds.editor`, `roles/iam.serviceAccountUser`, `roles/storage.admin`
+   Roles: `roles/run.admin`, `roles/cloudbuild.builds.editor`, `roles/iam.serviceAccountUser`, `roles/storage.admin`, `roles/artifactregistry.admin`
+
+   (`storage.admin` is needed for `gcloud run deploy --source` to create its source-upload bucket; `artifactregistry.admin` is needed for it to create the `cloud-run-source-deploy` repo on first deploy.)
 4. Generate a JSON key and add it as the `GCP_SA_KEY` GitHub secret (and `GCP_PROJECT_ID` as another secret). Delete the local key file afterward.
-5. After the first successful deploy, set the runtime env vars once:
-   ```
-   gcloud run services update mc-top10growth-api --region=us-central1 \
-     --set-env-vars DATABASE_URL="<neon-url>",ALLOWED_ORIGINS="https://<your-frontend>.netlify.app" \
-     --project=<PROJECT_ID>
-   ```
+
+`deploy.yml` passes `DATABASE_URL` to Cloud Run via `--set-env-vars` on every deploy, so no manual post-deploy step is needed for the API to start. If you later deploy a frontend, set `ALLOWED_ORIGINS` the same way (either add it to `deploy.yml`'s `flags`, or run `gcloud run services update mc-top10growth-api --region=us-central1 --update-env-vars ALLOWED_ORIGINS="https://<your-frontend>.netlify.app" --project=<PROJECT_ID>`).
 
 📡 API Endpoints
 
