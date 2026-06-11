@@ -102,7 +102,7 @@ Connect the repo to Netlify:
 2. Netlify auto-detects `netlify.toml` and pre-fills Base directory `ui`, Build command `npm run build`, Publish directory `ui/build`. Leave these as-is.
 3. Click **Deploy site**. Netlify installs dependencies, runs the build, and publishes `ui/build` to a generated URL like `https://<random-name>.netlify.app`.
 4. (Optional) Rename the site under **Site configuration → General → Site details → Change site name** for a friendlier URL.
-5. **Required follow-up**: add the Netlify URL to the API's CORS allow-list — Cloud Run currently only allows `http://localhost:3000`. Update `deploy.yml`'s `flags` to include `ALLOWED_ORIGINS`, e.g.:
+5. Add the Netlify URL to the API's CORS allow-list via `deploy.yml`'s `flags` (already done for `https://chic-custard-4162d3.netlify.app` — update this if you rename the site or add another frontend URL):
    ```
    flags: --allow-unauthenticated --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }},ALLOWED_ORIGINS=https://<your-site>.netlify.app
    ```
