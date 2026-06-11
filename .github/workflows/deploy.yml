@@ -25,6 +25,6 @@ jobs:
           region: us-central1
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           source: .
-          flags: --allow-unauthenticated --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }},ALLOWED_ORIGINS=https://chic-custard-4162d3.netlify.app
+          flags: --allow-unauthenticated --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }},ALLOWED_ORIGINS=https://monstercat-top10growth.netlify.app
 
       - run: echo "${{ steps.deploy.outputs.url }}"
