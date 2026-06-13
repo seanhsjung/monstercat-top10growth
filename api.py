@@ -104,15 +104,20 @@ async def metrics(aid: str, period: str = "24 hours"):
 # ────────────────────────────────────────────────────────────────────────────────
 # Existing: Top‐growth endpoint (unchanged)
 @app.get("/artists/top-growth")
-async def top_growth(period: str = "7 days", limit: int = 10):
+async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "absolute"):
     # Debug inputs
-    print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}")
+    print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}, sort_by={sort_by!r}")
 
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
+    if sort_by not in ("absolute", "percent"):
+        raise HTTPException(status_code=400, detail="sort_by must be 'absolute' or 'percent'")
+
+    order_by = "absolute_delta DESC" if sort_by == "absolute" else "percent_delta DESC NULLS LAST"
+
     if period.lower() == "all":
-        query = """
+        query = f"""
         WITH windowed AS (
           SELECT
             artist_id,
@@ -133,7 +138,12 @@ async def top_growth(period: str = "7 days", limit: int = 10):
         SELECT
           a.id,
           a.name,
-          (w_max.followers - w_min.followers) AS delta
+          w_max.followers AS latest_value,
+          w_min.followers AS baseline_value,
+          (w_max.followers - w_min.followers) AS absolute_delta,
+          CASE WHEN w_min.followers = 0 THEN NULL
+               ELSE ROUND((w_max.followers - w_min.followers) / w_min.followers::numeric * 100, 4)
+          END AS percent_delta
         FROM windowed w_min
         JOIN windowed w_max
           ON w_min.artist_id = w_max.artist_id
@@ -141,7 +151,7 @@ async def top_growth(period: str = "7 days", limit: int = 10):
           ON a.id = w_min.artist_id
         WHERE w_min.rn_asc = 1
           AND w_max.rn_desc = 1
-        ORDER BY delta DESC
+        ORDER BY {order_by}
         LIMIT $1;
         """
     else:
@@ -180,7 +190,12 @@ async def top_growth(period: str = "7 days", limit: int = 10):
         SELECT
           a.id,
           a.name,
-          (latest.followers - baseline.followers) AS delta
+          latest.followers AS latest_value,
+          baseline.followers AS baseline_value,
+          (latest.followers - baseline.followers) AS absolute_delta,
+          CASE WHEN baseline.followers = 0 THEN NULL
+               ELSE ROUND((latest.followers - baseline.followers) / baseline.followers::numeric * 100, 4)
+          END AS percent_delta
         FROM latest
         JOIN baseline
           ON latest.artist_id = baseline.artist_id
@@ -188,7 +203,7 @@ async def top_growth(period: str = "7 days", limit: int = 10):
           ON a.id = latest.artist_id
         WHERE latest.rn = 1
           AND baseline.rn = 1
-        ORDER BY delta DESC
+        ORDER BY {order_by}
         LIMIT $1;
         """
 

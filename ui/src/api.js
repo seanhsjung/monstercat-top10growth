@@ -23,9 +23,11 @@ export function fetchLatest(aid, period = "24 hours") {
 
 /**
  * Get top‐growth leaderboard (by follower delta)
+ *
+ * @param {string} sortBy  "absolute" | "percent"
  */
-export function fetchTopGrowth(period = "7 days", limit = 10) {
-  const params = new URLSearchParams({ period, limit });
+export function fetchTopGrowth(period = "7 days", limit = 10, sortBy = "absolute") {
+  const params = new URLSearchParams({ period, limit, sort_by: sortBy });
   return fetch(`${API}/artists/top-growth?${params}`).then((r) => r.json());
 }
 

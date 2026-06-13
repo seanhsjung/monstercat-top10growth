@@ -12,6 +12,7 @@ export default function Leaderboard({
   refreshInterval,
 }) {
   const [sortMode, setSortMode] = useState("followers"); // "followers" | "popularity"
+  const [growthMode, setGrowthMode] = useState("absolute"); // "absolute" | "percent"
   const [leaders, setLeaders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -20,10 +21,29 @@ export default function Leaderboard({
   function loadData() {
     setLoading(true);
     setError(null);
-    const fetcher = sortMode === "popularity" ? fetchTopPopularityGrowth : fetchTopGrowth;
-    return fetcher(period, limit)
+    const fetcher = sortMode === "popularity"
+      ? fetchTopPopularityGrowth(period, limit)
+      : fetchTopGrowth(period, limit, growthMode);
+    return fetcher
       .then(data => {
-        setLeaders(data);
+        const normalized = sortMode === "popularity"
+          ? data.map(({ id, name, delta, earliest_popularity, latest_popularity }) => ({
+              id,
+              name,
+              delta,
+              percentDelta: null,
+              latestValue: latest_popularity,
+              baselineValue: earliest_popularity,
+            }))
+          : data.map(({ id, name, absolute_delta, percent_delta, latest_value, baseline_value }) => ({
+              id,
+              name,
+              delta: absolute_delta,
+              percentDelta: percent_delta,
+              latestValue: latest_value,
+              baselineValue: baseline_value,
+            }));
+        setLeaders(normalized);
         setLoading(false);
       })
       .catch(err => {
@@ -33,11 +53,11 @@ export default function Leaderboard({
       });
   }
 
-  // Fetch on mount and whenever `period`, `limit`, or `sortMode` changes
+  // Fetch on mount and whenever `period`, `limit`, `sortMode`, or `growthMode` changes
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, limit, sortMode]);
+  }, [period, limit, sortMode, growthMode]);
 
   // Poll every `refreshInterval` milliseconds
   useEffect(() => {
@@ -45,7 +65,7 @@ export default function Leaderboard({
     const intervalId = setInterval(loadData, refreshInterval);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, limit, sortMode, refreshInterval]);
+  }, [period, limit, sortMode, growthMode, refreshInterval]);
 
   if (loading) {
     return (
@@ -82,6 +102,23 @@ export default function Leaderboard({
         </button>
       </div>
 
+      {!isPopularity && (
+        <div className={styles.toggleRow}>
+          <button
+            className={`${styles.toggleBtn} ${growthMode === "absolute" ? styles.toggleBtnActive : ""}`}
+            onClick={() => setGrowthMode("absolute")}
+          >
+            Absolute Growth
+          </button>
+          <button
+            className={`${styles.toggleBtn} ${growthMode === "percent" ? styles.toggleBtnActive : ""}`}
+            onClick={() => setGrowthMode("percent")}
+          >
+            Relative Growth (%)
+          </button>
+        </div>
+      )}
+
       <h2 className={styles.heading}>
         Top {limit} {isPopularity ? "Popularity" : "Growth"} ({periodLabel})
       </h2>
@@ -91,12 +128,12 @@ export default function Leaderboard({
           <tr>
             <th className={styles.th}>Artist</th>
             <th className={styles.th} style={{ textAlign: "right" }}>
-              {isPopularity ? "Popularity Δ" : "Δ Followers"}
+              {isPopularity ? "Popularity Δ" : growthMode === "percent" ? "Δ %" : "Δ Followers"}
             </th>
           </tr>
         </thead>
         <tbody>
-          {leaders.map(({ id, name, delta }) => (
+          {leaders.map(({ id, name, delta, percentDelta }) => (
             <tr
               key={id}
               onClick={() => setSelected(id)}
@@ -105,7 +142,11 @@ export default function Leaderboard({
               <td className={styles.td}>{name}</td>
               <td className={styles.td} style={{ textAlign: "right" }}>
                 <span style={{ color: "var(--color-accent-cyan)" }}>Δ</span>{" "}
-                {isPopularity ? (delta > 0 ? `+${delta}` : delta) : delta.toLocaleString()}
+                {isPopularity
+                  ? (delta > 0 ? `+${delta}` : delta)
+                  : growthMode === "percent"
+                    ? (percentDelta == null ? "—" : `${percentDelta > 0 ? "+" : ""}${percentDelta.toFixed(1)}%`)
+                    : delta.toLocaleString()}
               </td>
             </tr>
           ))}
