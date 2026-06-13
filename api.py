@@ -165,6 +165,60 @@ async def top_growth(period: str = "7 days", limit: int = 10):
     return [dict(r) for r in rows]
 
 # ────────────────────────────────────────────────────────────────────────────────
+# NEW: Top popularity-growth endpoint
+@app.get("/artists/top-popularity-growth")
+async def top_popularity_growth(period: str = "7 days", limit: int = 10):
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be 1–100")
+
+    if period.lower() == "all":
+        interval_clause = ""
+    else:
+        interval_clause = f"AND ts >= now() - INTERVAL '{period}'"
+
+    query = f"""
+    WITH windowed AS (
+      SELECT
+        artist_id,
+        val AS popularity,
+        ts,
+        ROW_NUMBER() OVER (
+          PARTITION BY artist_id
+          ORDER BY ts ASC
+        ) AS rn_asc,
+        ROW_NUMBER() OVER (
+          PARTITION BY artist_id
+          ORDER BY ts DESC
+        ) AS rn_desc
+      FROM metrics
+      WHERE source='spotify'
+        AND metric='popularity'
+        {interval_clause}
+    )
+    SELECT
+      a.id,
+      a.name,
+      w_min.popularity AS earliest_popularity,
+      w_max.popularity AS latest_popularity,
+      (w_max.popularity - w_min.popularity) AS delta
+    FROM windowed w_min
+    JOIN windowed w_max
+      ON w_min.artist_id = w_max.artist_id
+    JOIN artists a
+      ON a.id = w_min.artist_id
+    WHERE w_min.rn_asc = 1
+      AND w_max.rn_desc = 1
+    ORDER BY delta DESC
+    LIMIT $1;
+    """
+
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch(query, limit)
+    await conn.close()
+
+    return [dict(r) for r in rows]
+
+# ────────────────────────────────────────────────────────────────────────────────
 # Existing: WebSocket endpoint (unchanged)
 @app.websocket("/ws/{aid}")
 async def ws_endpoint(websocket: WebSocket, aid: str):

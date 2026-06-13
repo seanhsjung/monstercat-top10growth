@@ -22,9 +22,17 @@ export function fetchLatest(aid, period = "24 hours") {
 }
 
 /**
- * Get top‐growth leaderboard
+ * Get top‐growth leaderboard (by follower delta)
  */
 export function fetchTopGrowth(period = "7 days", limit = 10) {
   const params = new URLSearchParams({ period, limit });
   return fetch(`${API}/artists/top-growth?${params}`).then((r) => r.json());
+}
+
+/**
+ * Get top popularity-growth leaderboard (by popularity score delta)
+ */
+export function fetchTopPopularityGrowth(period = "7 days", limit = 10) {
+  const params = new URLSearchParams({ period, limit });
+  return fetch(`${API}/artists/top-popularity-growth?${params}`).then((r) => r.json());
 }
