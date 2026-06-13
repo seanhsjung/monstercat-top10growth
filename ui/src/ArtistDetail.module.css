@@ -25,3 +25,17 @@
   margin-bottom: 1rem;
   color: var(--color-text-main);
 }
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.chartTitle {
+  font-size: var(--fs-body);
+  font-weight: 700;
+  color: var(--color-text-sub);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem;
+}

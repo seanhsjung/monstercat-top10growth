@@ -22,6 +22,18 @@ export function fetchLatest(aid, period = "24 hours") {
 }
 
 /**
+ * Get growth KPIs (current value, absolute/percent change) for one artist
+ * over a given period, keyed by metric name (e.g. "followers", "popularity").
+ *
+ * @param {string} aid
+ * @param {string} period  e.g. "24 hours", "7 days", "all"
+ */
+export function fetchArtistGrowth(aid, period = "24 hours") {
+  const params = new URLSearchParams({ period });
+  return fetch(`${API}/artist/${aid}/growth?${params}`).then((r) => r.json());
+}
+
+/**
  * Get top‐growth leaderboard (by follower delta)
  *
  * @param {string} sortBy  "absolute" | "percent"

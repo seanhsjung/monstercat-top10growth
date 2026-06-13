@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import asyncpg
 from fastapi import FastAPI, WebSocket, HTTPException
@@ -100,6 +101,115 @@ async def metrics(aid: str, period: str = "24 hours"):
 
     await conn.close()
     return [dict(r) for r in rows]
+
+# ────────────────────────────────────────────────────────────────────────────────
+# NEW: per-artist growth summary, for KPI cards on the Artist Detail page
+#    - GET /artist/{aid}/growth?period=24 hours   (default)
+#    - returns one entry per metric present for this artist under source='spotify'
+#      (e.g. "followers", "popularity", ...), each shaped like:
+#        {"latest_value": ..., "baseline_value": ..., "absolute_delta": ..., "percent_delta": ...}
+_PERIOD_RE = re.compile(r"^(?:all|\d+\s+(?:second|minute|hour|day|week|month|year)s?)$", re.IGNORECASE)
+
+@app.get("/artist/{aid}/growth")
+async def artist_growth(aid: str, period: str = "24 hours"):
+    if not _PERIOD_RE.match(period):
+        raise HTTPException(status_code=400, detail="invalid period")
+
+    if period.lower() == "all":
+        query = """
+        WITH windowed AS (
+          SELECT
+            artist_id,
+            metric,
+            val,
+            ts,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id, metric
+              ORDER BY ts ASC
+            ) AS rn_asc,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id, metric
+              ORDER BY ts DESC
+            ) AS rn_desc
+          FROM metrics
+          WHERE artist_id = $1
+            AND source = 'spotify'
+        )
+        SELECT
+          w_max.metric,
+          w_max.val AS latest_value,
+          w_min.val AS baseline_value,
+          (w_max.val - w_min.val) AS absolute_delta,
+          CASE WHEN w_min.val = 0 THEN NULL
+               ELSE ROUND((w_max.val - w_min.val) / w_min.val::numeric * 100, 4)
+          END AS percent_delta
+        FROM windowed w_min
+        JOIN windowed w_max
+          ON w_min.artist_id = w_max.artist_id
+         AND w_min.metric = w_max.metric
+        WHERE w_min.rn_asc = 1
+          AND w_max.rn_desc = 1;
+        """
+    else:
+        query = f"""
+        WITH latest AS (
+          SELECT
+            artist_id,
+            metric,
+            val,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id, metric
+              ORDER BY ts DESC
+            ) AS rn
+          FROM metrics
+          WHERE artist_id = $1
+            AND source = 'spotify'
+        ),
+        baseline AS (
+          SELECT
+            artist_id,
+            metric,
+            val,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id, metric
+              ORDER BY
+                (ts <= now() - INTERVAL '{period}') DESC,
+                CASE WHEN ts <= now() - INTERVAL '{period}' THEN ts END DESC,
+                ts ASC
+            ) AS rn
+          FROM metrics
+          WHERE artist_id = $1
+            AND source = 'spotify'
+        )
+        SELECT
+          latest.metric,
+          latest.val AS latest_value,
+          baseline.val AS baseline_value,
+          (latest.val - baseline.val) AS absolute_delta,
+          CASE WHEN baseline.val = 0 THEN NULL
+               ELSE ROUND((latest.val - baseline.val) / baseline.val::numeric * 100, 4)
+          END AS percent_delta
+        FROM latest
+        JOIN baseline
+          ON latest.artist_id = baseline.artist_id
+         AND latest.metric = baseline.metric
+        WHERE latest.rn = 1
+          AND baseline.rn = 1;
+        """
+
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch(query, aid)
+    await conn.close()
+
+    return {
+        row["metric"]: {
+            "latest_value": row["latest_value"],
+            "baseline_value": row["baseline_value"],
+            "absolute_delta": row["absolute_delta"],
+            "percent_delta": row["percent_delta"],
+        }
+        for row in rows
+    }
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Existing: Top‐growth endpoint (unchanged)
