@@ -112,43 +112,85 @@ async def top_growth(period: str = "7 days", limit: int = 10):
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
     if period.lower() == "all":
-        interval_clause = ""
+        query = """
+        WITH windowed AS (
+          SELECT
+            artist_id,
+            val AS followers,
+            ts,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts ASC
+            ) AS rn_asc,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts DESC
+            ) AS rn_desc
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='followers'
+        )
+        SELECT
+          a.id,
+          a.name,
+          (w_max.followers - w_min.followers) AS delta
+        FROM windowed w_min
+        JOIN windowed w_max
+          ON w_min.artist_id = w_max.artist_id
+        JOIN artists a
+          ON a.id = w_min.artist_id
+        WHERE w_min.rn_asc = 1
+          AND w_max.rn_desc = 1
+        ORDER BY delta DESC
+        LIMIT $1;
+        """
     else:
-        interval_clause = f"AND ts >= now() - INTERVAL '{period}'"
-
-    query = f"""
-    WITH windowed AS (
-      SELECT
-        artist_id,
-        val AS followers,
-        ts,
-        ROW_NUMBER() OVER (
-          PARTITION BY artist_id
-          ORDER BY ts ASC
-        ) AS rn_asc,
-        ROW_NUMBER() OVER (
-          PARTITION BY artist_id
-          ORDER BY ts DESC
-        ) AS rn_desc
-      FROM metrics
-      WHERE source='spotify'
-        AND metric='followers'
-        {interval_clause}
-    )
-    SELECT
-      a.id,
-      a.name,
-      (w_max.followers - w_min.followers) AS delta
-    FROM windowed w_min
-    JOIN windowed w_max
-      ON w_min.artist_id = w_max.artist_id
-    JOIN artists a
-      ON a.id = w_min.artist_id
-    WHERE w_min.rn_asc = 1
-      AND w_max.rn_desc = 1
-    ORDER BY delta DESC
-    LIMIT $1;
-    """
+        # "latest" = most recent snapshot per artist.
+        # "baseline" = most recent snapshot at/before `period` ago, falling
+        # back to the earliest snapshot overall if none exists yet (not
+        # enough history). delta = latest - baseline.
+        query = f"""
+        WITH latest AS (
+          SELECT
+            artist_id,
+            val AS followers,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts DESC
+            ) AS rn
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='followers'
+        ),
+        baseline AS (
+          SELECT
+            artist_id,
+            val AS followers,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY
+                (ts <= now() - INTERVAL '{period}') DESC,
+                CASE WHEN ts <= now() - INTERVAL '{period}' THEN ts END DESC,
+                ts ASC
+            ) AS rn
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='followers'
+        )
+        SELECT
+          a.id,
+          a.name,
+          (latest.followers - baseline.followers) AS delta
+        FROM latest
+        JOIN baseline
+          ON latest.artist_id = baseline.artist_id
+        JOIN artists a
+          ON a.id = latest.artist_id
+        WHERE latest.rn = 1
+          AND baseline.rn = 1
+        ORDER BY delta DESC
+        LIMIT $1;
+        """
 
     print("[DEBUG] Executing SQL:", query.replace("\n", " "))
 
@@ -172,45 +214,89 @@ async def top_popularity_growth(period: str = "7 days", limit: int = 10):
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
     if period.lower() == "all":
-        interval_clause = ""
+        query = """
+        WITH windowed AS (
+          SELECT
+            artist_id,
+            val AS popularity,
+            ts,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts ASC
+            ) AS rn_asc,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts DESC
+            ) AS rn_desc
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='popularity'
+        )
+        SELECT
+          a.id,
+          a.name,
+          w_min.popularity AS earliest_popularity,
+          w_max.popularity AS latest_popularity,
+          (w_max.popularity - w_min.popularity) AS delta
+        FROM windowed w_min
+        JOIN windowed w_max
+          ON w_min.artist_id = w_max.artist_id
+        JOIN artists a
+          ON a.id = w_min.artist_id
+        WHERE w_min.rn_asc = 1
+          AND w_max.rn_desc = 1
+        ORDER BY delta DESC
+        LIMIT $1;
+        """
     else:
-        interval_clause = f"AND ts >= now() - INTERVAL '{period}'"
-
-    query = f"""
-    WITH windowed AS (
-      SELECT
-        artist_id,
-        val AS popularity,
-        ts,
-        ROW_NUMBER() OVER (
-          PARTITION BY artist_id
-          ORDER BY ts ASC
-        ) AS rn_asc,
-        ROW_NUMBER() OVER (
-          PARTITION BY artist_id
-          ORDER BY ts DESC
-        ) AS rn_desc
-      FROM metrics
-      WHERE source='spotify'
-        AND metric='popularity'
-        {interval_clause}
-    )
-    SELECT
-      a.id,
-      a.name,
-      w_min.popularity AS earliest_popularity,
-      w_max.popularity AS latest_popularity,
-      (w_max.popularity - w_min.popularity) AS delta
-    FROM windowed w_min
-    JOIN windowed w_max
-      ON w_min.artist_id = w_max.artist_id
-    JOIN artists a
-      ON a.id = w_min.artist_id
-    WHERE w_min.rn_asc = 1
-      AND w_max.rn_desc = 1
-    ORDER BY delta DESC
-    LIMIT $1;
-    """
+        # "latest" = most recent snapshot per artist.
+        # "baseline" = most recent snapshot at/before `period` ago, falling
+        # back to the earliest snapshot overall if none exists yet (not
+        # enough history). delta = latest - baseline.
+        query = f"""
+        WITH latest AS (
+          SELECT
+            artist_id,
+            val AS popularity,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY ts DESC
+            ) AS rn
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='popularity'
+        ),
+        baseline AS (
+          SELECT
+            artist_id,
+            val AS popularity,
+            ROW_NUMBER() OVER (
+              PARTITION BY artist_id
+              ORDER BY
+                (ts <= now() - INTERVAL '{period}') DESC,
+                CASE WHEN ts <= now() - INTERVAL '{period}' THEN ts END DESC,
+                ts ASC
+            ) AS rn
+          FROM metrics
+          WHERE source='spotify'
+            AND metric='popularity'
+        )
+        SELECT
+          a.id,
+          a.name,
+          baseline.popularity AS earliest_popularity,
+          latest.popularity AS latest_popularity,
+          (latest.popularity - baseline.popularity) AS delta
+        FROM latest
+        JOIN baseline
+          ON latest.artist_id = baseline.artist_id
+        JOIN artists a
+          ON a.id = latest.artist_id
+        WHERE latest.rn = 1
+          AND baseline.rn = 1
+        ORDER BY delta DESC
+        LIMIT $1;
+        """
 
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch(query, limit)
