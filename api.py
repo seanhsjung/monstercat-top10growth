@@ -23,33 +23,45 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Set the DATABASE_URL env var before running")
 
+# ─── Shared connection pool ──────────────────────────────────────────────────
+pool: asyncpg.Pool | None = None
+
 @app.on_event("startup")
-async def log_db_url():
+async def startup():
+    global pool
+    # statement_cache_size=0: required for Neon's pgbouncer pooler endpoint,
+    # which runs in transaction-pooling mode and doesn't support asyncpg's
+    # per-connection prepared statement cache.
+    pool = await asyncpg.create_pool(
+        DATABASE_URL, statement_cache_size=0, min_size=1, max_size=10
+    )
     print(f"[STARTUP] Using DATABASE_URL = {DATABASE_URL}")
+
+@app.on_event("shutdown")
+async def shutdown():
+    await pool.close()
 
 # ─── Helper: fetch last 24h of metrics for an artist ────────────────────────────
 async def fetch_latest(aid: str):
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch(
-        """
-        SELECT metric, val, ts
-          FROM metrics
-         WHERE artist_id = $1
-           AND ts > now() - INTERVAL '24 hours'
-         ORDER BY ts
-        """,
-        aid,
-    )
-    await conn.close()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT metric, val, ts
+              FROM metrics
+             WHERE artist_id = $1
+               AND ts > now() - INTERVAL '24 hours'
+             ORDER BY ts
+            """,
+            aid,
+        )
     return [dict(r) for r in rows]
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Existing endpoint: list all artists
 @app.get("/artists")
 async def list_artists():
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch("SELECT id, name FROM artists ORDER BY name")
-    await conn.close()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id, name FROM artists ORDER BY name")
     return [dict(r) for r in rows]
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -70,36 +82,34 @@ async def latest(aid: str):
 #
 @app.get("/artist/{aid}/metrics")
 async def metrics(aid: str, period: str = "24 hours"):
-    conn = await asyncpg.connect(DATABASE_URL)
-
-    # If the user wants “all time,” don’t filter by ts
-    if period.lower() == "all":
-        rows = await conn.fetch(
-            """
+    async with pool.acquire() as conn:
+        # If the user wants “all time,” don’t filter by ts
+        if period.lower() == "all":
+            rows = await conn.fetch(
+                """
+                SELECT metric, val, ts
+                  FROM metrics
+                 WHERE artist_id = $1
+                   AND source = 'spotify'
+                   AND metric = 'followers'
+                 ORDER BY ts
+                """,
+                aid,
+            )
+        else:
+            # Otherwise subtract “period” from now()
+            # (e.g. INTERVAL '7 days', INTERVAL '24 hours', INTERVAL '30 days')
+            query = f"""
             SELECT metric, val, ts
               FROM metrics
              WHERE artist_id = $1
                AND source = 'spotify'
                AND metric = 'followers'
+               AND ts >= now() - INTERVAL '{period}'
              ORDER BY ts
-            """,
-            aid,
-        )
-    else:
-        # Otherwise subtract “period” from now()
-        # (e.g. INTERVAL '7 days', INTERVAL '24 hours', INTERVAL '30 days')
-        query = f"""
-        SELECT metric, val, ts
-          FROM metrics
-         WHERE artist_id = $1
-           AND source = 'spotify'
-           AND metric = 'followers'
-           AND ts >= now() - INTERVAL '{period}'
-         ORDER BY ts
-        """
-        rows = await conn.fetch(query, aid)
+            """
+            rows = await conn.fetch(query, aid)
 
-    await conn.close()
     return [dict(r) for r in rows]
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -197,9 +207,8 @@ async def artist_growth(aid: str, period: str = "24 hours"):
           AND baseline.rn = 1;
         """
 
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch(query, aid)
-    await conn.close()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, aid)
 
     return {
         row["metric"]: {
@@ -215,9 +224,6 @@ async def artist_growth(aid: str, period: str = "24 hours"):
 # Existing: Top‐growth endpoint (unchanged)
 @app.get("/artists/top-growth")
 async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "absolute"):
-    # Debug inputs
-    print(f"[DEBUG] top_growth called with period={period!r}, limit={limit!r}, sort_by={sort_by!r}")
-
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
 
@@ -317,17 +323,8 @@ async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "ab
         LIMIT $1;
         """
 
-    print("[DEBUG] Executing SQL:", query.replace("\n", " "))
-
-    conn = await asyncpg.connect(DATABASE_URL)
-    count_row = await conn.fetchrow("SELECT COUNT(*) AS c FROM metrics")
-    print(f"[DEBUG] metrics table has {count_row['c']} rows")
-
-    rows = await conn.fetch(query, limit)
-    await conn.close()
-
-    print(f"[DEBUG] top_growth returned {len(rows)} rows")
-    print("[DEBUG] sample rows:", rows[:5])
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, limit)
 
     return [dict(r) for r in rows]
 
@@ -423,9 +420,8 @@ async def top_popularity_growth(period: str = "7 days", limit: int = 10):
         LIMIT $1;
         """
 
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch(query, limit)
-    await conn.close()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, limit)
 
     return [dict(r) for r in rows]
 
