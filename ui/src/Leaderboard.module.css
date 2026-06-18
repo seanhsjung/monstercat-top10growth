@@ -80,6 +80,12 @@
   box-shadow: 0 0 8px var(--color-accent-cyan);
 }
 
+.discoveryHint {
+  font-size: var(--fs-body);
+  font-weight: 400;
+  color: var(--color-text-sub);
+}
+
 /* Spinner styles */
 
 .loadingContainer {

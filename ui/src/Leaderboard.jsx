@@ -11,22 +11,30 @@ export default function Leaderboard({
   limit = 10,
   refreshInterval,
 }) {
-  const [sortMode, setSortMode] = useState("followers"); // "followers" | "popularity"
+  const [viewMode, setViewMode]   = useState("all");        // "all" | "discovery"
+  const [sortMode, setSortMode]   = useState("followers");   // "followers" | "popularity"
   const [growthMode, setGrowthMode] = useState("absolute"); // "absolute" | "percent"
-  const [leaders, setLeaders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [selected, setSelected] = useState(null);
+  const [leaders, setLeaders]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [selected, setSelected]   = useState(null);
 
   function loadData() {
     setLoading(true);
     setError(null);
-    const fetcher = sortMode === "popularity"
-      ? fetchTopPopularityGrowth(period, limit)
-      : fetchTopGrowth(period, limit, growthMode);
+
+    let fetcher;
+    if (viewMode === "discovery") {
+      fetcher = fetchTopGrowth(period, limit, "percent", "discovery");
+    } else if (sortMode === "popularity") {
+      fetcher = fetchTopPopularityGrowth(period, limit);
+    } else {
+      fetcher = fetchTopGrowth(period, limit, growthMode, "all");
+    }
+
     return fetcher
       .then(data => {
-        const normalized = sortMode === "popularity"
+        const normalized = (sortMode === "popularity" && viewMode === "all")
           ? data.map(({ id, name, delta, earliest_popularity, latest_popularity }) => ({
               id,
               name,
@@ -53,19 +61,17 @@ export default function Leaderboard({
       });
   }
 
-  // Fetch on mount and whenever `period`, `limit`, `sortMode`, or `growthMode` changes
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, limit, sortMode, growthMode]);
+  }, [period, limit, viewMode, sortMode, growthMode]);
 
-  // Poll every `refreshInterval` milliseconds
   useEffect(() => {
     if (!refreshInterval) return;
     const intervalId = setInterval(loadData, refreshInterval);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, limit, sortMode, growthMode, refreshInterval]);
+  }, [period, limit, viewMode, sortMode, growthMode, refreshInterval]);
 
   if (loading) {
     return (
@@ -83,57 +89,108 @@ export default function Leaderboard({
     return <p style={{ color: "red" }}>Error loading leaderboard.</p>;
   }
 
-  const isPopularity = sortMode === "popularity";
+  const isDiscovery  = viewMode === "discovery";
+  const isPopularity = !isDiscovery && sortMode === "popularity";
+  const isPercent    = !isDiscovery && !isPopularity && growthMode === "percent";
+
+  const followerColLabel = isPopularity ? "Score" : "Followers";
+  const deltaColLabel    = isPopularity ? "Popularity Δ"
+    : isPercent || isDiscovery ? "Δ %"
+    : "Δ Followers";
+
+  function formatFollowers(val) {
+    if (val == null) return "—";
+    return isPopularity ? String(val) : val.toLocaleString();
+  }
+
+  function formatDelta(delta, percentDelta) {
+    if (isPopularity) {
+      return delta > 0 ? `+${delta}` : String(delta);
+    }
+    if (isPercent || isDiscovery) {
+      return percentDelta == null ? "—"
+        : `${percentDelta > 0 ? "+" : ""}${Number(percentDelta).toFixed(1)}%`;
+    }
+    return delta == null ? "—" : delta.toLocaleString();
+  }
+
+  const headingLabel = isDiscovery ? "Discovery"
+    : isPopularity ? "Popularity"
+    : "Growth";
 
   return (
     <div className={styles.container}>
+
+      {/* Top-level: All Artists | Discovery */}
       <div className={styles.toggleRow}>
         <button
-          className={`${styles.toggleBtn} ${!isPopularity ? styles.toggleBtnActive : ""}`}
-          onClick={() => setSortMode("followers")}
+          className={`${styles.toggleBtn} ${!isDiscovery ? styles.toggleBtnActive : ""}`}
+          onClick={() => setViewMode("all")}
         >
-          Follower Growth
+          All Artists
         </button>
         <button
-          className={`${styles.toggleBtn} ${isPopularity ? styles.toggleBtnActive : ""}`}
-          onClick={() => setSortMode("popularity")}
+          className={`${styles.toggleBtn} ${isDiscovery ? styles.toggleBtnActive : ""}`}
+          onClick={() => setViewMode("discovery")}
         >
-          Rising Popularity
+          Discovery
         </button>
       </div>
 
-      {!isPopularity && (
-        <div className={styles.toggleRow}>
-          <button
-            className={`${styles.toggleBtn} ${growthMode === "absolute" ? styles.toggleBtnActive : ""}`}
-            onClick={() => setGrowthMode("absolute")}
-          >
-            Absolute Growth
-          </button>
-          <button
-            className={`${styles.toggleBtn} ${growthMode === "percent" ? styles.toggleBtnActive : ""}`}
-            onClick={() => setGrowthMode("percent")}
-          >
-            Relative Growth (%)
-          </button>
-        </div>
+      {/* Sort sub-options — hidden in Discovery mode */}
+      {!isDiscovery && (
+        <>
+          <div className={styles.toggleRow}>
+            <button
+              className={`${styles.toggleBtn} ${!isPopularity ? styles.toggleBtnActive : ""}`}
+              onClick={() => setSortMode("followers")}
+            >
+              Follower Growth
+            </button>
+            <button
+              className={`${styles.toggleBtn} ${isPopularity ? styles.toggleBtnActive : ""}`}
+              onClick={() => setSortMode("popularity")}
+            >
+              Rising Popularity
+            </button>
+          </div>
+
+          {!isPopularity && (
+            <div className={styles.toggleRow}>
+              <button
+                className={`${styles.toggleBtn} ${growthMode === "absolute" ? styles.toggleBtnActive : ""}`}
+                onClick={() => setGrowthMode("absolute")}
+              >
+                Absolute Growth
+              </button>
+              <button
+                className={`${styles.toggleBtn} ${growthMode === "percent" ? styles.toggleBtnActive : ""}`}
+                onClick={() => setGrowthMode("percent")}
+              >
+                Relative Growth (%)
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <h2 className={styles.heading}>
-        Top {limit} {isPopularity ? "Popularity" : "Growth"} ({periodLabel})
+        Top {limit} {headingLabel} ({periodLabel})
+        {isDiscovery && (
+          <span className={styles.discoveryHint}> · 5k–250k followers</span>
+        )}
       </h2>
 
       <table className={styles.table}>
         <thead>
           <tr>
             <th className={styles.th}>Artist</th>
-            <th className={styles.th} style={{ textAlign: "right" }}>
-              {isPopularity ? "Popularity Δ" : growthMode === "percent" ? "Δ %" : "Δ Followers"}
-            </th>
+            <th className={styles.th} style={{ textAlign: "right" }}>{followerColLabel}</th>
+            <th className={styles.th} style={{ textAlign: "right" }}>{deltaColLabel}</th>
           </tr>
         </thead>
         <tbody>
-          {leaders.map(({ id, name, delta, percentDelta }) => (
+          {leaders.map(({ id, name, delta, percentDelta, latestValue }) => (
             <tr
               key={id}
               onClick={() => setSelected(id)}
@@ -141,12 +198,11 @@ export default function Leaderboard({
             >
               <td className={styles.td}>{name}</td>
               <td className={styles.td} style={{ textAlign: "right" }}>
+                {formatFollowers(latestValue)}
+              </td>
+              <td className={styles.td} style={{ textAlign: "right" }}>
                 <span style={{ color: "var(--color-accent-cyan)" }}>Δ</span>{" "}
-                {isPopularity
-                  ? (delta > 0 ? `+${delta}` : delta)
-                  : growthMode === "percent"
-                    ? (percentDelta == null ? "—" : `${percentDelta > 0 ? "+" : ""}${percentDelta.toFixed(1)}%`)
-                    : delta.toLocaleString()}
+                {formatDelta(delta, percentDelta)}
               </td>
             </tr>
           ))}

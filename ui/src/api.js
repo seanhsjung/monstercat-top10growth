@@ -37,9 +37,10 @@ export function fetchArtistGrowth(aid, period = "24 hours") {
  * Get top‐growth leaderboard (by follower delta)
  *
  * @param {string} sortBy  "absolute" | "percent"
+ * @param {string} mode    "all" | "discovery"
  */
-export function fetchTopGrowth(period = "7 days", limit = 10, sortBy = "absolute") {
-  const params = new URLSearchParams({ period, limit, sort_by: sortBy });
+export function fetchTopGrowth(period = "7 days", limit = 10, sortBy = "absolute", mode = "all") {
+  const params = new URLSearchParams({ period, limit, sort_by: sortBy, mode });
   return fetch(`${API}/artists/top-growth?${params}`).then((r) => r.json());
 }
 

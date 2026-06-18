@@ -223,14 +223,20 @@ async def artist_growth(aid: str, period: str = "24 hours"):
 # ────────────────────────────────────────────────────────────────────────────────
 # Existing: Top‐growth endpoint (unchanged)
 @app.get("/artists/top-growth")
-async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "absolute"):
+async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "absolute", mode: str = "all"):
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be 1–100")
-
-    if sort_by not in ("absolute", "percent"):
+    if mode not in ("all", "discovery"):
+        raise HTTPException(status_code=400, detail="mode must be 'all' or 'discovery'")
+    if mode == "discovery":
+        sort_by = "percent"
+    elif sort_by not in ("absolute", "percent"):
         raise HTTPException(status_code=400, detail="sort_by must be 'absolute' or 'percent'")
 
     order_by = "absolute_delta DESC" if sort_by == "absolute" else "percent_delta DESC NULLS LAST"
+    # discovery mode: filter to the 5k–250k follower band (applied in the final WHERE clause)
+    discovery_clause_windowed = "AND w_max.followers BETWEEN 5000 AND 250000" if mode == "discovery" else ""
+    discovery_clause_latest = "AND latest.followers BETWEEN 5000 AND 250000" if mode == "discovery" else ""
 
     if period.lower() == "all":
         query = f"""
@@ -267,6 +273,7 @@ async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "ab
           ON a.id = w_min.artist_id
         WHERE w_min.rn_asc = 1
           AND w_max.rn_desc = 1
+          {discovery_clause_windowed}
         ORDER BY {order_by}
         LIMIT $1;
         """
@@ -319,6 +326,7 @@ async def top_growth(period: str = "7 days", limit: int = 10, sort_by: str = "ab
           ON a.id = latest.artist_id
         WHERE latest.rn = 1
           AND baseline.rn = 1
+          {discovery_clause_latest}
         ORDER BY {order_by}
         LIMIT $1;
         """
